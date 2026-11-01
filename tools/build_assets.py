@@ -191,9 +191,105 @@ def build_materials():
 
 # ----------------------------------------------------------------- 民居
 
+def build_house_hd(M):
+    """高细节民居样板：真实瓦楞、分层窗框、门套、檐口"""
+    objs = []
+    HW = 1.78          # 半宽
+    HD = 1.78
+    objs.append(box("plinth", 3.96, 3.96, 0.34, (0, 0, 0.17), M["stone"]))
+    objs.append(box("plinth_top", 3.86, 3.86, 0.07, (0, 0, 0.37), M["stone_dark"]))
+    # 墙体分三段，避免一整块方盒
+    objs.append(box("wall_base", 3.50, 3.50, 0.62, (0, 0, 0.70), M["stone_dark"]))
+    objs.append(box("wall_mid", 3.54, 3.54, 1.10, (0, 0, 1.58), M["plaster"]))
+    objs.append(box("wall_top", 3.54, 3.54, 0.42, (0, 0, 2.34), M["wood_light"]))
+    # 角柱与腰线
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            objs.append(box("post_%d_%d" % (sx, sy), 0.26, 0.26, 2.55,
+                            (sx * 1.70, sy * 1.70, 1.62), M["wood"]))
+    for sy in (-1, 1):
+        objs.append(box("beam_f_%d" % sy, 3.62, 0.18, 0.20, (0, sy * 1.74, 2.56), M["wood"]))
+        objs.append(box("belt_%d" % sy, 3.60, 0.10, 0.12, (0, sy * 1.76, 1.02), M["wood"]))
+    for sx in (-1, 1):
+        objs.append(box("beam_s_%d" % sx, 0.18, 3.62, 0.20, (sx * 1.74, 0, 2.56), M["wood"]))
+        objs.append(box("belt_s_%d" % sx, 0.10, 3.60, 0.12, (sx * 1.76, 0, 1.02), M["wood"]))
+    # 屋顶主体
+    objs.append(prism("roof_core", 4.40, 4.30, 1.62, 2.66, M["roof_dark"]))
+    # 真实瓦楞：两级屋檐上各铺 9 道横向瓦条
+    slope = math.atan2(1.62, 2.15)
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            y = sy * (2.15 * (1.0 - t))
+            z = 2.66 + 1.62 * t + 0.05
+            objs.append(box("tile_%d_%d" % (sy, k), 4.46, 0.30, 0.075,
+                            (0, y, z), M["roof"], rot=(sy * -slope, 0, 0)))
+    # 檐口与封檐板
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, 4.52, 0.10, 0.22, (0, sy * 2.19, 2.62), M["wood_light"]))
+    objs.append(box("ridge_cap", 0.30, 4.36, 0.14, (0, 0, 4.30), M["roof_dark"]))
+    objs.append(box("ridge_top", 0.16, 4.40, 0.07, (0, 0, 4.39), M["wood_light"]))
+    # 山墙灰泥三角
+    for sy in (-1, 1):
+        objs.append(_gable("gable_%d" % sy, 3.56, 1.60, 2.66, sy * 2.16, M["plaster"]))
+    # 门：门套 + 门板 + 门槛 + 台阶
+    objs.append(box("door_frame_l", 0.13, 0.14, 1.90, (-0.52, -1.80, 1.02), M["wood_light"]))
+    objs.append(box("door_frame_r", 0.13, 0.14, 1.90, (0.52, -1.80, 1.02), M["wood_light"]))
+    objs.append(box("door_frame_t", 1.16, 0.14, 0.14, (0, -1.80, 1.98), M["wood_light"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.90) + 0.30, 0.46, 0.07,
+                    (0, float(-1.74) - 0.18, float(0.94) + float(1.82) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.90) * 0.5 + 0.06), float(-1.74) - 0.34, float(0.94) + float(1.82) * 0.5 - 0.06), M["wood"]))
+    objs.append(box("door", 0.90, 0.10, 1.82, (0, -1.74, 0.94), M["wood"]))
+    objs.append(box("door_plank1", 0.06, 0.04, 1.70, (-0.24, -1.68, 0.94), M["wood_light"]))
+    objs.append(box("door_plank2", 0.06, 0.04, 1.70, (0.24, -1.68, 0.94), M["wood_light"]))
+    objs.append(box("knob", 0.08, 0.08, 0.08, (0.32, -1.66, 0.98), M["stone"]))
+    objs.append(box("threshold", 1.34, 0.30, 0.10, (0, -1.92, 0.42), M["stone"]))
+    objs.append(box("step1", 1.50, 0.44, 0.12, (0, -2.14, 0.30), M["stone_dark"]))
+    objs.append(box("step2", 1.66, 0.30, 0.10, (0, -2.42, 0.17), M["stone_dark"]))
+    # 窗：外框 + 内框 + 玻璃 + 窗台 + 百叶
+    for sx in (-1, 1):
+        x = sx * 1.05
+        objs.append(box("win_outer", 0.86, 0.10, 0.80, (x, -1.79, 1.62), M["wood_light"]))
+        objs.append(box("win_inner", 0.70, 0.12, 0.64, (x, -1.76, 1.62), M["wood"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.58) + 0.13, float(0.10) + 0.13, float(0.52) * 0.75,
+                        (x, -1.74, 1.62), M["wood_light"]))
+        objs.append(box("win_glass", 0.58, 0.10, 0.52, (x, -1.74, 1.62), M["glass"]))
+        objs.append(box("win_mull_v", 0.05, 0.06, 0.52, (x, -1.72, 1.62), M["wood_light"]))
+        objs.append(box("win_mull_h", 0.58, 0.06, 0.05, (x, -1.72, 1.62), M["wood_light"]))
+        objs.append(box("win_sill", 0.94, 0.22, 0.09, (x, -1.83, 1.20), M["wood_light"]))
+        objs.append(box("shutter_l", 0.12, 0.09, 0.72, (x - 0.47, -1.78, 1.62), M["wood"]))
+        objs.append(box("shutter_r", 0.12, 0.09, 0.72, (x + 0.47, -1.78, 1.62), M["wood"]))
+        objs.append(box("winbox", 0.80, 0.24, 0.18, (x, -1.86, 1.06), M["wood_light"]))
+        for k in range(3):
+            objs.append(box("bloom_%d" % k, 0.15, 0.15, 0.15,
+                            (x - 0.22 + k * 0.22, -1.86, 1.18),
+                            M["sign"] if k == 1 else M["berry"]))
+        # 侧窗
+        objs.append(box("win_s_outer", 0.10, 0.80, 0.74, (sx * 1.80, 0.45, 1.62), M["wood_light"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.10) + 0.13, float(0.60) + 0.13, float(0.56) * 0.75,
+                        (sx * 1.78, 0.45, 1.62), M["wood_light"]))
+        objs.append(box("win_s_glass", 0.10, 0.60, 0.56, (sx * 1.78, 0.45, 1.62), M["glass"]))
+    # 烟囱（带顶帽）
+    objs.append(box("chimney", 0.54, 0.54, 1.30, (1.12, 0.95, 3.30), M["stone"]))
+    objs.append(box("chimney_cap", 0.66, 0.66, 0.10, (1.12, 0.95, 3.98), M["stone_dark"]))
+    objs.append(box("chimney_pot", 0.30, 0.30, 0.26, (1.12, 0.95, 4.14), M["stone_dark"]))
+    return join(objs, "house_hd")
+
+
 def build_house(M):
     objs = []
     objs.append(box("foundation", 3.9, 3.9, 0.34, (0, 0, 0.17), M["stone"]))
+    objs.append(box("skirt_band", float(3.5) + 0.14, float(3.5) + 0.14, 0.20,
+                    (0, 0, float(1.35) - float(2.05) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.05),
+                            (float(0) + csx * (float(3.5) * 0.5 - 0.06), float(0) + csy * (float(3.5) * 0.5 - 0.06), 1.35), M["wood"]))
     objs.append(box("wall", 3.5, 3.5, 2.05, (0, 0, 1.35), M["plaster"]))
 
     # 木框架：四角立柱 + 顶部横梁
@@ -207,7 +303,21 @@ def build_house(M):
         objs.append(box("beam_m", 0.14, 3.6, 0.14, (sx * 1.76, 0, 0.55), M["wood"]))
 
     # 屋顶（含山墙）
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(4.35) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(4.25) * 0.5 + 0.03), float(2.36) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(4.35) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(4.25) * 0.5 + 0.03), (float(2.36) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 4.35, 4.25, 1.55, 2.36, M["roof"]))
+    # 瓦楞：沿坡面 8 级台阶（水平薄板叠放，不做旋转）
+    for sy in (-1, 1):
+        for k in range(8):
+            t = (k + 0.5) / 8.0
+            yy = sy * (2.125 * (1.0 - t))
+            zz = 2.36 + 1.55 * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), 4.38, 0.30, 0.055,
+                            (0, yy, zz), M["roof_dark"]))
     # 屋脊压顶
     objs.append(box("ridge_cap", 0.24, 4.30, 0.13, (0, 0, 3.95), M["roof_dark"]))
     # 前坡老虎窗
@@ -220,6 +330,12 @@ def build_house(M):
         objs.append(_gable("gable_%d" % sy, 3.52, 1.53, 2.36, sy * 2.15, M["plaster"]))
 
     # 门
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.82) + 0.30, 0.46, 0.07,
+                    (0, float(-1.78) - 0.18, float(0.88) + float(1.72) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.82) * 0.5 + 0.06), float(-1.78) - 0.34, float(0.88) + float(1.72) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.82, 0.10, 1.72, (0, -1.78, 0.88), M["wood"]))
     objs.append(box("door_frame_l", 0.10, 0.12, 1.80, (-0.46, -1.78, 0.92), M["wood_light"]))
     objs.append(box("door_frame_r", 0.10, 0.12, 1.80, (0.46, -1.78, 0.92), M["wood_light"]))
@@ -228,6 +344,9 @@ def build_house(M):
     # 窗（带窗台与百叶）
     for sx in (-1, 1):
         x = sx * 1.05
+        # 窗框
+        objs.append(box("win_frame", float(0.66) + 0.13, float(0.08) + 0.13, float(0.62) * 0.75,
+                        (x, -1.77, 1.55), M["wood_light"]))
         objs.append(box("win", 0.66, 0.08, 0.62, (x, -1.77, 1.55), M["glass"]))
         objs.append(box("win_sill", 0.80, 0.14, 0.08, (x, -1.77, 1.22), M["wood_light"]))
         objs.append(box("shutter_l", 0.10, 0.07, 0.64, (x - 0.40, -1.78, 1.55), M["wood"]))
@@ -239,6 +358,9 @@ def build_house(M):
                             (x - 0.22 + k * 0.22, -1.86, 1.19),
                             M["sign"] if k == 1 else M["berry"]))
         # 侧窗
+        # 窗框
+        objs.append(box("win_frame", float(0.08) + 0.13, float(0.62) + 0.13, float(0.58) * 0.75,
+                        (sx * 1.77, 0.4, 1.55), M["wood_light"]))
         objs.append(box("win_s", 0.08, 0.62, 0.58, (sx * 1.77, 0.4, 1.55), M["glass"]))
 
     # 烟囱
@@ -265,6 +387,12 @@ def _gable(name, w, h, base_z, y, material):
 def build_storage(M):
     objs = []
     objs.append(box("foundation", 5.9, 5.9, 0.40, (0, 0, 0.20), M["stone"]))
+    objs.append(box("skirt_band", float(5.5) + 0.14, float(5.5) + 0.14, 0.20,
+                    (0, 0, float(1.75) - float(2.70) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.70),
+                            (float(0) + csx * (float(5.5) * 0.5 - 0.06), float(0) + csy * (float(5.5) * 0.5 - 0.06), 1.75), M["wood"]))
     objs.append(box("wall", 5.5, 5.5, 2.70, (0, 0, 1.75), M["barn"]))
 
     # 竖向木板纹理感：几条深色竖梁
@@ -274,7 +402,20 @@ def build_storage(M):
         for sy in (-1, 1):
             objs.append(box("corner", 0.28, 0.28, 2.70, (sx * 2.68, sy * 2.68, 1.75), M["wood"]))
 
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(6.30) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(6.10) * 0.5 + 0.03), float(3.10) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(6.30) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(6.10) * 0.5 + 0.03), (float(3.10) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 6.30, 6.10, 1.75, 3.10, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(6.10) * 0.5 * (1.0 - t))
+            zz = float(3.10) + float(1.75) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(6.30) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     # 山墙气窗（百叶）
     objs.append(box("vent_frame", 1.10, 0.14, 0.86, (0, -3.12, 3.86), M["wood"]))
     for k in range(4):
@@ -333,7 +474,20 @@ def build_woodcutter(M):
             objs.append(box("post", 0.22, 0.22, 2.15, (sx * 1.82, sy * 1.82, 1.07), M["wood"]))
 
     # 人字屋顶（平屋顶从俯视角看就是一块悬空的板，必须给山墙）
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(4.30) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(4.20) * 0.5 + 0.03), float(2.05) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(4.30) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(4.20) * 0.5 + 0.03), (float(2.05) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 4.30, 4.20, 1.20, 2.05, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(4.20) * 0.5 * (1.0 - t))
+            zz = float(2.05) + float(1.20) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(4.30) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 3.90, 1.18, 2.05, sy * 2.11, M["barn"]))
 
@@ -359,8 +513,30 @@ def build_gatherer(M):
     # 小屋（偏移到左侧，右侧留给晾架和篮子）
     objs.append(box("hut", 2.40, 2.40, 1.85, (-0.75, 0.70, 0.92), M["wood_light"]))
     objs.append(box("hut_base", 2.55, 2.55, 0.18, (-0.75, 0.70, 0.09), M["stone"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(2.95) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(2.95) * 0.5 + 0.03), float(1.85) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(2.95) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(2.95) * 0.5 + 0.03), (float(1.85) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 2.95, 2.95, 1.00, 1.85, M["thatch"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(2.95) * 0.5 * (1.0 - t))
+            zz = float(1.85) + float(1.00) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(2.95) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.68) + 0.30, 0.46, 0.07,
+                    (-0.75, float(-0.48) - 0.18, float(0.66) + float(1.30) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(-0.75) + sx * (float(0.68) * 0.5 + 0.06), float(-0.48) - 0.34, float(0.66) + float(1.30) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.68, 0.08, 1.30, (-0.75, -0.48, 0.66), M["wood"]))
+    # 窗框
+    objs.append(box("win_frame", float(0.42) + 0.13, float(0.07) + 0.13, float(0.36) * 0.75,
+                    (-0.20, -0.48, 1.25), M["wood_light"]))
     objs.append(box("win", 0.42, 0.07, 0.36, (-0.20, -0.48, 1.25), M["glass"]))
     # 屋檐下的横杆
     objs.append(box("eave", 3.05, 0.10, 0.10, (-0.75, -1.48, 1.85), M["wood"]))
@@ -396,7 +572,26 @@ def build_hunter(M):
     for i in range(4):
         objs.append(box("log_line_%d" % i, 2.52, 0.06, 0.10, (-0.70, 0.85 - 1.19, 0.26 + i * 0.42), M["wood"]))
         objs.append(box("log_side_%d" % i, 0.06, 2.42, 0.10, (-0.70 + 1.24, 0.85, 0.26 + i * 0.42), M["wood"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(2.95) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(2.85) * 0.5 + 0.03), float(1.75) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(2.95) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(2.85) * 0.5 + 0.03), (float(1.75) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 2.95, 2.85, 1.05, 1.75, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(2.85) * 0.5 * (1.0 - t))
+            zz = float(1.75) + float(1.05) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(2.95) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.70) + 0.30, 0.46, 0.07,
+                    (-0.70, float(-0.33) - 0.18, float(0.68) + float(1.35) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(-0.70) + sx * (float(0.70) * 0.5 + 0.06), float(-0.33) - 0.34, float(0.68) + float(1.35) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.70, 0.08, 1.35, (-0.70, -0.33, 0.68), M["wood_light"]))
     # 鹿角装饰
     for sx in (-0.28, 0.28):
@@ -469,7 +664,20 @@ def build_firewood(M):
     for sx in (-1, 1):
         for sy in (-1, 1):
             objs.append(box("post", 0.18, 0.18, 2.05, (sx * 1.80, sy * 1.80, 1.02), M["wood"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(4.30) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(4.20) * 0.5 + 0.03), float(2.05) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(4.30) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(4.20) * 0.5 + 0.03), (float(2.05) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 4.30, 4.20, 1.20, 2.05, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(4.20) * 0.5 * (1.0 - t))
+            zz = float(2.05) + float(1.20) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(4.30) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 3.85, 1.18, 2.05, sy * 2.11, M["barn"]))
 
@@ -548,7 +756,20 @@ def build_well(M):
     for sx in (-1, 1):
         objs.append(box("post", 0.14, 0.14, 2.30, (sx * 0.95, 0, 1.15), M["wood"]))
     objs.append(box("beam", 2.10, 0.14, 0.14, (0, 0, 2.28), M["wood"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(2.45) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(1.95) * 0.5 + 0.03), float(2.36) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(2.45) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(1.95) * 0.5 + 0.03), (float(2.36) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 2.45, 1.95, 0.55, 2.36, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(1.95) * 0.5 * (1.0 - t))
+            zz = float(2.36) + float(0.55) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(2.45) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     objs.append(box("rope", 0.05, 0.05, 0.85, (0, 0, 1.85), M["rope"]))
     objs.append(box("bucket", 0.30, 0.30, 0.30, (0, 0, 1.30), M["wood_light"]))
     objs.append(box("bucket_band", 0.34, 0.04, 0.30, (0, 0, 1.30), M["wood"]))
@@ -560,6 +781,12 @@ def build_well(M):
 def build_hospital(M):
     objs = []
     objs.append(box("base", 5.70, 5.70, 0.36, (0, 0, 0.18), M["stone"]))
+    objs.append(box("skirt_band", float(5.30) + 0.14, float(5.30) + 0.14, 0.20,
+                    (0, 0, float(1.71) - float(2.70) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.70),
+                            (float(0) + csx * (float(5.30) * 0.5 - 0.06), float(0) + csy * (float(5.30) * 0.5 - 0.06), 1.71), M["wood"]))
     objs.append(box("wall", 5.30, 5.30, 2.70, (0, 0, 1.71), M["plaster"]))
 
     for sx in (-1, 1):
@@ -571,11 +798,30 @@ def build_hospital(M):
     for sx in (-1, 1):
         objs.append(box("beam_s", 0.16, 5.36, 0.18, (sx * 2.60, 0, 2.92), M["wood"]))
 
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(6.20) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(6.00) * 0.5 + 0.03), float(3.06) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(6.20) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(6.00) * 0.5 + 0.03), (float(3.06) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 6.20, 6.00, 1.60, 3.06, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(6.00) * 0.5 * (1.0 - t))
+            zz = float(3.06) + float(1.60) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(6.20) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 5.30, 1.58, 3.06, sy * 3.02, M["plaster"]))
 
     # 门与红色十字
+    # 门头雨棚
+    objs.append(box("awning_board", float(1.10) + 0.30, 0.46, 0.07,
+                    (0, float(-2.66) - 0.18, float(1.00) + float(2.00) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(1.10) * 0.5 + 0.06), float(-2.66) - 0.34, float(1.00) + float(2.00) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 1.10, 0.10, 2.00, (0, -2.66, 1.00), M["wood"]))
     objs.append(box("cross_v", 0.24, 0.07, 0.86, (0, -3.12, 3.95), M["sign"]))
     objs.append(box("cross_h", 0.78, 0.07, 0.24, (0, -3.12, 3.95), M["sign"]))
@@ -592,8 +838,14 @@ def build_hospital(M):
 
     # 侧窗与正窗
     for sx in (-1, 1):
+        # 窗框
+        objs.append(box("win_frame", float(0.70) + 0.13, float(0.08) + 0.13, float(0.70) * 0.75,
+                        (sx * 1.55, -2.66, 1.60), M["wood_light"]))
         objs.append(box("win", 0.70, 0.08, 0.70, (sx * 1.55, -2.66, 1.60), M["glass"]))
         objs.append(box("win_sill", 0.86, 0.12, 0.08, (sx * 1.55, -2.66, 1.20), M["wood_light"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.08) + 0.13, float(0.70) + 0.13, float(0.66) * 0.75,
+                        (sx * 2.66, 0.6, 1.60), M["wood_light"]))
         objs.append(box("win_side", 0.08, 0.70, 0.66, (sx * 2.66, 0.6, 1.60), M["glass"]))
 
     # 门前长椅与药草箱
@@ -612,13 +864,41 @@ def build_hospital(M):
 def build_tailor(M):
     objs = []
     objs.append(box("base", 3.60, 3.10, 0.24, (-0.15, 0.45, 0.12), M["stone"]))
+    objs.append(box("skirt_band", float(3.30) + 0.14, float(2.80) + 0.14, 0.20,
+                    (-0.15, 0.45, float(1.10) - float(1.95) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(1.95),
+                            (float(-0.15) + csx * (float(3.30) * 0.5 - 0.06), float(0.45) + csy * (float(2.80) * 0.5 - 0.06), 1.10), M["wood"]))
     objs.append(box("wall", 3.30, 2.80, 1.95, (-0.15, 0.45, 1.10), M["wood_light"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(3.75) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(3.30) * 0.5 + 0.03), float(2.08) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(3.75) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(3.30) * 0.5 + 0.03), (float(2.08) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 3.75, 3.30, 0.95, 2.08, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(3.30) * 0.5 * (1.0 - t))
+            zz = float(2.08) + float(0.95) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(3.75) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 3.30, 0.93, 2.08, sy * 1.66, M["wood_light"]))
 
     # 门与窗
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.72) + 0.30, 0.46, 0.07,
+                    (-0.15, float(-0.96) - 0.18, float(0.65) + float(1.30) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(-0.15) + sx * (float(0.72) * 0.5 + 0.06), float(-0.96) - 0.34, float(0.65) + float(1.30) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.72, 0.08, 1.30, (-0.15, -0.96, 0.65), M["wood"]))
+    # 窗框
+    objs.append(box("win_frame", float(0.60) + 0.13, float(0.07) + 0.13, float(0.52) * 0.75,
+                    (1.05, -0.96, 1.35), M["wood_light"]))
     objs.append(box("win", 0.60, 0.07, 0.52, (1.05, -0.96, 1.35), M["glass"]))
 
     # 门前布篷（两色条纹）
@@ -654,8 +934,27 @@ def build_tailor(M):
 def build_blacksmith(M):
     objs = []
     objs.append(box("base", 3.60, 3.20, 0.22, (-0.15, 0.40, 0.11), M["stone"]))
+    objs.append(box("skirt_band", float(3.25) + 0.14, float(2.85) + 0.14, 0.20,
+                    (-0.15, 0.40, float(1.28) - float(2.15) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.15),
+                            (float(-0.15) + csx * (float(3.25) * 0.5 - 0.06), float(0.40) + csy * (float(2.85) * 0.5 - 0.06), 1.28), M["wood"]))
     objs.append(box("wall", 3.25, 2.85, 2.15, (-0.15, 0.40, 1.28), M["stone_dark"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(3.70) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(3.35) * 0.5 + 0.03), float(2.36) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(3.70) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(3.35) * 0.5 + 0.03), (float(2.36) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 3.70, 3.35, 1.00, 2.36, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(3.35) * 0.5 * (1.0 - t))
+            zz = float(2.36) + float(1.00) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(3.70) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 3.25, 0.98, 2.36, sy * 1.68, M["stone_dark"]))
 
@@ -668,7 +967,16 @@ def build_blacksmith(M):
     objs.append(box("forge_fire", 0.70, 0.10, 0.55, (0.55, -1.06, 0.55), M["sign"]))
 
     # 门
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.85) + 0.30, 0.46, 0.07,
+                    (-0.55, float(-1.02) - 0.18, float(0.78) + float(1.55) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(-0.55) + sx * (float(0.85) * 0.5 + 0.06), float(-1.02) - 0.34, float(0.78) + float(1.55) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.85, 0.09, 1.55, (-0.55, -1.02, 0.78), M["wood"]))
+    # 窗框
+    objs.append(box("win_frame", float(0.55) + 0.13, float(0.08) + 0.13, float(0.45) * 0.75,
+                    (-1.35, -1.02, 1.55), M["wood_light"]))
     objs.append(box("win", 0.55, 0.08, 0.45, (-1.35, -1.02, 1.55), M["glass"]))
 
     # 铁砧
@@ -748,6 +1056,12 @@ def build_tavern(M):
     objs = []
     W, D = 5.6, 5.0
     objs.append(box("foundation", W + 0.30, D + 0.30, 0.36, (0, 0, 0.18), M["stone"]))
+    objs.append(box("skirt_band", float(W) + 0.14, float(D) + 0.14, 0.20,
+                    (0, 0, float(1.50) - float(2.30) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.30),
+                            (float(0) + csx * (float(W) * 0.5 - 0.06), float(0) + csy * (float(D) * 0.5 - 0.06), 1.50), M["wood"]))
     objs.append(box("wall1", W, D, 2.30, (0, 0, 1.50), M["plaster"]))
     # 一层木框
     for sx in (-1, 1):
@@ -759,7 +1073,20 @@ def build_tavern(M):
     # 二层出挑
     objs.append(box("jetty", W + 0.34, D + 0.34, 0.20, (0, 0, 2.70), M["wood_light"]))
     objs.append(box("wall2", W + 0.30, D + 0.30, 1.85, (0, 0, 3.72), M["plaster"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(W + 0.80) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(D + 0.75) * 0.5 + 0.03), float(4.65) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(W + 0.80) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(D + 0.75) * 0.5 + 0.03), (float(4.65) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", W + 0.80, D + 0.75, 1.85, 4.65, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (float(D + 0.75) * 0.5 * (1.0 - t))
+            zz = float(4.65) + float(1.85) * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), float(W + 0.80) + 0.03, 0.30, 0.055,
+                                (0, yy, zz), M["roof_dark"]))
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, W + 0.30, 1.83, 4.65, sy * (D * 0.5 + 0.28), M["plaster"]))
     # 屋脊压顶 + 老虎窗
@@ -768,6 +1095,12 @@ def build_tavern(M):
     objs.append(prism("dormer_roof", 1.22, 1.12, 0.40, 6.54, M["roof_dark"]))
     # 门与窗
     objs.append(box("door_frame", 1.30, 0.12, 2.10, (0, -D * 0.5 - 0.04, 1.35), M["wood_light"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(1.10) + 0.30, 0.46, 0.07,
+                    (0, float(-D * 0.5) - 0.18, float(1.28) + float(1.94) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(1.10) * 0.5 + 0.06), float(-D * 0.5) - 0.34, float(1.28) + float(1.94) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 1.10, 0.14, 1.94, (0, -D * 0.5, 1.28), M["wood"]))
     for sx in (-1, 1):
         objs.append(box("win1_%d" % sx, 0.86, 0.10, 0.92, (sx * 1.75, -D * 0.5 - 0.02, 1.62), M["glass"]))
@@ -791,6 +1124,12 @@ def build_tavern(M):
 def build_house_stone(M):
     objs = []
     objs.append(box("foundation", 3.90, 3.90, 0.40, (0, 0, 0.20), M["stone"]))
+    objs.append(box("skirt_band", float(3.50) + 0.14, float(3.50) + 0.14, 0.20,
+                    (0, 0, float(1.60) - float(2.45) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.45),
+                            (float(0) + csx * (float(3.50) * 0.5 - 0.06), float(0) + csy * (float(3.50) * 0.5 - 0.06), 1.60), M["wood"]))
     objs.append(box("wall", 3.50, 3.50, 2.45, (0, 0, 1.60), M["stone_dark"]))
 
     for sx in (-1, 1):
@@ -801,7 +1140,19 @@ def build_house_stone(M):
     for sx in (-1, 1):
         objs.append(box("beam_s", 0.16, 3.60, 0.16, (sx * 1.78, 0, 2.74), M["wood"]))
 
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(4.45) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(4.35) * 0.5 + 0.03), float(2.82) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(4.45) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(4.35) * 0.5 + 0.03), (float(2.82) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 4.45, 4.35, 1.70, 2.82, M["roof_dark"]))
+    for sy in (-1, 1):
+        for k in range(9):
+            t = (k + 0.5) / 9.0
+            yy = sy * (2.175 * (1.0 - t))
+            zz = 2.82 + 1.70 * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), 4.48, 0.32, 0.06, (0, yy, zz), M["roof"]))
     # 屋脊压顶 + 前坡老虎窗
     objs.append(box("ridge_cap", 0.24, 4.40, 0.13, (0, 0, 4.55), M["roof"]))
     objs.append(box("dormer", 0.96, 1.05, 0.82, (0.05, -1.02, 4.16), M["stone_dark"]))
@@ -810,12 +1161,27 @@ def build_house_stone(M):
     for sy in (-1, 1):
         objs.append(_gable("gable_%d" % sy, 3.55, 1.68, 2.82, sy * 2.18, M["stone_dark"]))
 
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.86) + 0.30, 0.46, 0.07,
+                    (0, float(-1.80) - 0.18, float(0.92) + float(1.78) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.86) * 0.5 + 0.06), float(-1.80) - 0.34, float(0.92) + float(1.78) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.86, 0.10, 1.78, (0, -1.80, 0.92), M["wood"]))
     objs.append(box("door_frame", 1.06, 0.12, 0.10, (0, -1.80, 1.86), M["wood_light"]))
     for sx in (-1, 1):
+        # 窗框
+        objs.append(box("win_frame", float(0.68) + 0.13, float(0.08) + 0.13, float(0.68) * 0.75,
+                        (sx * 1.10, -1.79, 1.62), M["wood_light"]))
         objs.append(box("win", 0.68, 0.08, 0.68, (sx * 1.10, -1.79, 1.62), M["glass"]))
         objs.append(box("win_sill", 0.84, 0.14, 0.08, (sx * 1.10, -1.79, 1.26), M["wood_light"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.08) + 0.13, float(0.68) + 0.13, float(0.62) * 0.75,
+                        (sx * 1.79, 0.55, 1.62), M["wood_light"]))
         objs.append(box("win_s", 0.08, 0.68, 0.62, (sx * 1.79, 0.55, 1.62), M["glass"]))
+    # 窗框
+    objs.append(box("win_frame", float(0.62) + 0.13, float(0.07) + 0.13, float(0.52) * 0.75,
+                    (0, -1.79, 2.28), M["wood_light"]))
     objs.append(box("win_up", 0.62, 0.07, 0.52, (0, -1.79, 2.28), M["glass"]))
 
     objs.append(box("chimney", 0.56, 0.56, 1.45, (1.20, 0.95, 3.35), M["stone"]))
@@ -848,7 +1214,19 @@ def build_house_manor(M):
         objs.append(box("brace", 0.10, 0.10, 1.00, (sx * 1.78, -1.83, 2.60), M["wood"],
                         rot=(0, 0, math.radians(28 * sx))))
 
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(4.55) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(4.45) * 0.5 + 0.03), float(3.85) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(4.55) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(4.45) * 0.5 + 0.03), (float(3.85) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", 4.55, 4.45, 1.85, 3.85, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(10):
+            t = (k + 0.5) / 10.0
+            yy = sy * (2.225 * (1.0 - t))
+            zz = 3.85 + 1.85 * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), 4.58, 0.32, 0.06, (0, yy, zz), M["roof_dark"]))
     # 屋脊压顶 + 前坡老虎窗
     objs.append(box("ridge_cap", 0.26, 4.50, 0.14, (0, 0, 5.72), M["roof_dark"]))
     objs.append(box("dormer", 1.02, 1.10, 0.88, (0.05, -1.05, 5.32), M["plaster"]))
@@ -861,14 +1239,32 @@ def build_house_manor(M):
     objs.append(box("porch_roof", 2.10, 0.95, 0.12, (0, -2.15, 2.32), M["roof_dark"]))
     for sx in (-1, 1):
         objs.append(box("porch_post", 0.14, 0.14, 2.28, (sx * 0.90, -2.48, 1.14), M["wood"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.94) + 0.30, 0.46, 0.07,
+                    (0, float(-1.84) - 0.18, float(1.00) + float(1.92) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.94) * 0.5 + 0.06), float(-1.84) - 0.34, float(1.00) + float(1.92) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.94, 0.10, 1.92, (0, -1.84, 1.00), M["wood"]))
     objs.append(box("door_top", 1.10, 0.12, 0.12, (0, -1.86, 2.02), M["wood_light"]))
 
     # 两层窗户
     for sx in (-1, 1):
+        # 窗框
+        objs.append(box("win_frame", float(0.66) + 0.13, float(0.08) + 0.13, float(0.62) * 0.75,
+                        (sx * 1.12, -1.83, 1.30), M["wood_light"]))
         objs.append(box("win1", 0.66, 0.08, 0.62, (sx * 1.12, -1.83, 1.30), M["glass"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.66) + 0.13, float(0.08) + 0.13, float(0.66) * 0.75,
+                        (sx * 1.12, -1.84, 2.85), M["wood_light"]))
         objs.append(box("win2", 0.66, 0.08, 0.66, (sx * 1.12, -1.84, 2.85), M["glass"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.08) + 0.13, float(0.66) + 0.13, float(0.60) * 0.75,
+                        (sx * 1.83, 0.60, 1.30), M["wood_light"]))
         objs.append(box("win_s1", 0.08, 0.66, 0.60, (sx * 1.83, 0.60, 1.30), M["glass"]))
+        # 窗框
+        objs.append(box("win_frame", float(0.08) + 0.13, float(0.66) + 0.13, float(0.62) * 0.75,
+                        (sx * 1.83, 0.60, 2.85), M["wood_light"]))
         objs.append(box("win_s2", 0.08, 0.66, 0.62, (sx * 1.83, 0.60, 2.85), M["glass"]))
 
     objs.append(box("chimney", 0.60, 0.60, 1.60, (1.25, 1.00, 4.30), M["stone"]))
@@ -906,6 +1302,12 @@ def build_house_row(M):
     w, d = 4.0, 5.8
     objs = []
     objs.append(box("base", w + 0.20, d + 0.20, 0.34, (0, 0, 0.17), M["stone"]))
+    objs.append(box("skirt_band", float(w) + 0.14, float(d) + 0.14, 0.20,
+                    (0, 0, float(1.60) - float(2.55) * 0.5 + 0.10), M["stone_dark"]))
+    for csx in (-1, 1):
+        for csy in (-1, 1):
+            objs.append(box("corner_board_%d_%d" % (csx, csy), 0.20, 0.20, float(2.55),
+                            (float(0) + csx * (float(w) * 0.5 - 0.06), float(0) + csy * (float(d) * 0.5 - 0.06), 1.60), M["wood"]))
     objs.append(box("walls", w, d, 2.55, (0, 0, 1.60), M["plaster"]))
     # 二层出挑
     objs.append(box("jetty", w + 0.30, d + 0.30, 0.20, (0, 0, 2.98), M["wood"]))
@@ -914,7 +1316,19 @@ def build_house_row(M):
         for sy in (-1, 1):
             objs.append(box("post_%d_%d" % (sx, sy), 0.18, 0.18, 2.15,
                             (sx * (w * 0.5 + 0.11), sy * (d * 0.5 + 0.11), 4.16), M["wood"]))
+    for sy in (-1, 1):
+        objs.append(box("fascia_%d" % sy, float(w + 0.52) + 0.10, 0.09, 0.20,
+                        (0, sy * (float(d + 0.56) * 0.5 + 0.03), float(5.24) - 0.05), M["wood_light"]))
+        for rk in range(7):
+            objs.append(box("rafter_%d" % rk, 0.11, 0.26, 0.11,
+                            ((float(w + 0.52) + 0.10 - 0.7) * (rk / 6.0 - 0.5), sy * (float(d + 0.56) * 0.5 + 0.03), (float(5.24) - 0.05) - 0.16), M["wood"]))
     objs.append(prism("roof", w + 0.52, d + 0.56, 2.30, 5.24, M["roof"]))
+    for sy in (-1, 1):
+        for k in range(11):
+            t = (k + 0.5) / 11.0
+            yy = sy * (3.18 * (1.0 - t))
+            zz = 5.24 + 2.30 * t - 0.02
+            objs.append(box("tile_%d_%d" % (sy, k), w + 0.56, 0.32, 0.06, (0, yy, zz), M["roof_dark"]))
     # 屋脊压顶 + 前坡老虎窗
     objs.append(box("ridge_cap", 0.24, d + 0.60, 0.13, (0, 0, 7.56), M["roof_dark"]))
     objs.append(box("dormer", 0.92, 1.00, 0.78, (0.05, -1.05, 7.24), M["plaster"]))
@@ -922,6 +1336,12 @@ def build_house_row(M):
     objs.append(box("dormer_win", 0.48, 0.08, 0.42, (0.05, -1.56, 7.20), M["glass"]))
     # 大门
     objs.append(box("door_frame", 1.12, 0.12, 2.02, (0, -d * 0.5 - 0.06, 1.31), M["wood_light"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.94) + 0.30, 0.46, 0.07,
+                    (0, float(-d * 0.5 - 0.02) - 0.18, float(1.26) + float(1.86) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.94) * 0.5 + 0.06), float(-d * 0.5 - 0.02) - 0.34, float(1.26) + float(1.86) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.94, 0.14, 1.86, (0, -d * 0.5 - 0.02, 1.26), M["wood"]))
     # 一二层窗
     for sx in (-1, 1):
@@ -1154,6 +1574,12 @@ def build_prop_lighthouse(M):
                         (math.cos(a) * 1.32, math.sin(a) * 1.32, 8.90), M["wood"]))
     objs.append(cylinder("lantern", 0.86, 1.20, (0, 0, 9.40), M["glass"], segments=8))
     objs.append(cone("lamp_roof", 1.08, 0.02, 0.95, (0, 0, 10.45), M["roof_dark"], segments=8))
+    # 门头雨棚
+    objs.append(box("awning_board", float(0.75) + 0.30, 0.46, 0.07,
+                    (0, float(-1.42) - 0.18, float(0.95) + float(1.45) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(0.75) * 0.5 + 0.06), float(-1.42) - 0.34, float(0.95) + float(1.45) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 0.75, 0.18, 1.45, (0, -1.42, 0.95), M["wood"]))
     for z in (3.4, 5.6):
         objs.append(box("win_%d" % int(z * 10), 0.30, 0.16, 0.45, (0, -1.15, z), M["glass"]))
@@ -1380,6 +1806,12 @@ def build_church(M):
     objs.append(box("cross_h", 0.58, 0.12, 0.12, (0, -3.30, 15.80), M["wood_light"]))
     # 大门
     objs.append(box("door_frame", 1.30, 0.18, 2.55, (0, -4.52, 1.72), M["wood"]))
+    # 门头雨棚
+    objs.append(box("awning_board", float(1.06) + 0.30, 0.46, 0.07,
+                    (0, float(-4.55) - 0.18, float(1.60) + float(2.30) * 0.5 + 0.16), M["roof_dark"]))
+    for sx in (-1, 1):
+        objs.append(box("awning_br_%d" % sx, 0.07, 0.07, 0.42,
+                        (float(0) + sx * (float(1.06) * 0.5 + 0.06), float(-4.55) - 0.34, float(1.60) + float(2.30) * 0.5 - 0.06), M["wood"]))
     objs.append(box("door", 1.06, 0.20, 2.30, (0, -4.55, 1.60), M["wood_light"]))
     objs.append(box("door_step", 1.60, 0.70, 0.18, (0, -4.85, 0.55), M["stone"]))
     # 塔前小玫瑰窗
@@ -1733,6 +2165,9 @@ def main():
 
     house = build_house(M)
     export("house", [house])
+    house_hd = build_house_hd(M)
+    export("house_hd", [house_hd])
+    house_hd.location = (74.0, 74.0, 0)
     house.location = (-12.0, -8.0, 0)
 
     storage = build_storage(M)

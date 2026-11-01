@@ -1,12 +1,13 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
-uniform vec4 shallow_col : source_color = vec4(0.09, 0.40, 0.46, 1.0);
-uniform vec4 deep_col : source_color = vec4(0.03, 0.13, 0.22, 1.0);
+uniform vec4 shallow_col : source_color = vec4(0.13, 0.52, 0.56, 1.0);
+uniform vec4 deep_col : source_color = vec4(0.04, 0.20, 0.30, 1.0);
 uniform vec4 foam_col : source_color = vec4(0.90, 0.94, 0.94, 1.0);
-uniform vec4 sky_col : source_color = vec4(0.58, 0.70, 0.80, 1.0);
+uniform vec4 sky_col : source_color = vec4(0.50, 0.68, 0.76, 1.0);
 uniform sampler2D depth_mask : filter_linear, repeat_disable;
 uniform sampler2D reflection_tex : filter_linear, repeat_disable;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 uniform vec2 mask_origin = vec2(-24.0, -24.0);
 uniform float mask_extent = 176.0;
 uniform float wave_height = 0.16;
@@ -48,6 +49,10 @@ void fragment() {
 	float edge = (1.0 - smoothstep(0.0, 0.14, dep)) * (1.0 - outside);
 	float pulse = 0.55 + 0.45 * sin(TIME * 1.6 + wpos.x * 0.85 + wpos.z * 0.65);
 	col = mix(col, foam_col.rgb, clamp(edge * pulse, 0.0, 1.0) * 0.80);
+	// 浅水中的浪花带：随时间向岸边推进
+	float band = 0.5 + 0.5 * sin(dep * 55.0 - TIME * 1.8 + wpos.x * 0.35);
+	float shore_band = (1.0 - smoothstep(0.02, 0.22, dep)) * (1.0 - outside);
+	col = mix(col, foam_col.rgb, shore_band * band * 0.30);
 	// 更宽的浅水提亮带，模拟浪花外缘
 	float surf = (1.0 - smoothstep(0.02, 0.30, dep)) * (1.0 - outside);
 	col = mix(col, shallow_col.rgb * 1.12, surf * 0.45);
@@ -63,12 +68,18 @@ void fragment() {
 	float fres = pow(1.0 - ndv, 2.6);
 	col = mix(col, sky_col.rgb, fres * 0.38);
 
+	// 折射：浅水处透过水面看到被波面扭曲的河床
+	vec2 duv = SCREEN_UV + vec2(nrm.x, nrm.z) * 0.035;
+	vec3 refr = texture(screen_tex, clamp(duv, vec2(0.001), vec2(0.999))).rgb;
+	float refr_amt = (1.0 - smoothstep(0.05, 0.55, dep)) * 0.45;
+	col = mix(col, mix(col, refr, 0.85), refr_amt);
+
 	ALBEDO = col;
 	ALPHA = mix(0.80, 0.99, smoothstep(0.02, 0.35, dep));
 	ALPHA = max(ALPHA, clamp(edge * pulse, 0.0, 1.0) * 0.85);
 	ALPHA = mix(ALPHA, 1.0, fres * 0.3);
 
-	ROUGHNESS = 0.05;
-	METALLIC = 0.10;
-	SPECULAR = 0.7;
+	ROUGHNESS = 0.035;
+	METALLIC = 0.08;
+	SPECULAR = 0.62;
 }

@@ -4,6 +4,7 @@ render_mode unshaded;
 // 最终调色：分离色调 + 对比 + 饱和 + 暗角 + 轻微颗粒
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 
+uniform float chromatic = 0.0016;
 uniform vec3 shadow_tint : source_color = vec3(0.96, 0.97, 1.04);
 uniform vec3 highlight_tint : source_color = vec3(1.05, 1.01, 0.93);
 uniform float contrast = 1.02;

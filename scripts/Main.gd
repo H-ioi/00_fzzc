@@ -58,6 +58,9 @@ var _pasture_done := false
 var _footbridge_done := false
 var _courtyard_done := false
 var _market_done := false
+var _range_done := false
+var _sapling_done := false
+var _tall_done := false
 var _quarry_done := false
 var _fence_meshes_ready := false
 var _fence_post: BoxMesh
@@ -152,12 +155,12 @@ func _build_environment() -> void:
 	env.fog_density = 0.0011
 	env.fog_aerial_perspective = 0.25
 	env.ssao_enabled = true
-	env.ssao_radius = 1.6
-	env.ssao_intensity = 2.1
+	env.ssao_radius = 2.4
+	env.ssao_intensity = 2.8
 	env.glow_enabled = true
-	env.glow_intensity = 0.32
-	env.glow_bloom = 0.05
-	env.glow_hdr_threshold = 1.05
+	env.glow_intensity = 0.42
+	env.glow_bloom = 0.12
+	env.glow_hdr_threshold = 0.85
 	env.adjustment_enabled = false
 	env.adjustment_contrast = 1.0
 	env.adjustment_saturation = 1.0
@@ -217,13 +220,13 @@ func _build_camera() -> void:
 	add_child(camera_rig)
 
 	var pivot := Node3D.new()
-	pivot.rotation_degrees = Vector3(-44, 0, 0)
+	pivot.rotation_degrees = Vector3(-37, 0, 0)
 	camera_rig.add_child(pivot)
 	camera_pivot = pivot
 
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 40.0
+	camera.size = 46.0
 	camera.position = Vector3(0, 0, 150)
 	camera.near = 1.0
 	camera.far = 700.0
@@ -282,7 +285,7 @@ func _build_water() -> void:
 	water_mat = mat
 	var mi := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(430, 430)
+	pm.size = Vector2(1700, 1700)
 	pm.subdivide_width = 220
 	pm.subdivide_depth = 220
 	mi.mesh = pm
@@ -415,12 +418,11 @@ func _height_f(x: float, z: float) -> float:
 	var hills := (_noise(x * 0.0135 + 31.0, z * 0.0135 + 17.0) * 0.5 + 0.5) * 9.5
 	hills += (_noise(x * 0.031 + 5.0, z * 0.031 + 3.0) * 0.5 + 0.5) * 2.6
 
-	# 北端雪山：越往北越高，形成河流的发源地
-	var north := clampf(1.0 - z / 52.0, 0.0, 1.0)
-	var mountain := 72.0 * north * north
-	mountain += (_noise(x * 0.045 + 61.0, z * 0.045 + 23.0) * 0.5 + 0.5) * 16.0 * north
-	# 山脊：让雪山有起伏的棱线，而不是一块高原
-	mountain += absf(_noise(x * 0.028 + 7.0, z * 0.028 + 41.0)) * 26.0 * north
+	# 北端雪山：整片山脉退到地图之外，村庄看到的是远处连绵雪峰
+	var north := clampf((6.0 - z) / 78.0, 0.0, 1.0)
+	var ridge := absf(_noise(x * 0.017 + 7.0, z * 0.017 + 41.0))
+	ridge += absf(_noise(x * 0.041 + 19.0, z * 0.041 + 5.0)) * 0.55
+	var mountain := (11.0 + 19.0 * ridge) * pow(north, 1.4)
 
 	# 南端入海：地势逐渐沉到水面以下
 	var south := smoothstep(96.0, 138.0, z)
@@ -759,7 +761,7 @@ func _scatter_far_forest() -> void:
 		var x := 64.0 + cos(a) * r
 		var z := 64.0 + sin(a) * r
 		var h := _height_f(x, z)
-		if h < WATER_LEVEL + 0.8 or h > 24.0:
+		if h < WATER_LEVEL + 0.25 or h > 24.0:
 			continue
 		var s := rng.randf_range(0.72, 1.75)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.95, 1.45), s))
@@ -804,7 +806,7 @@ func _scatter_far_forest() -> void:
 		var x2 := 64.0 + cos(a2) * r2
 		var z2 := 64.0 + sin(a2) * r2
 		var h2 := _height_f(x2, z2)
-		if h2 < WATER_LEVEL + 1.0 or h2 > 24.0:
+		if h2 < WATER_LEVEL + 0.30 or h2 > 24.0:
 			continue
 		var s2 := rng.randf_range(0.8, 1.6)
 		var b2 := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s2, s2 * rng.randf_range(0.9, 1.2), s2))
@@ -1098,6 +1100,111 @@ func _build_gate(pos: Vector3, rot: float) -> void:
 	li.rotation.y = rot
 	add_child(li)
 
+## 远处的连绵雪山：一排白色山体，立在地图北缘之外
+func _build_mountain_range() -> void:
+	if _range_done:
+		return
+	_range_done = true
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.0
+	cone.height = 1.0
+	cone.radial_segments = 7
+	cone.rings = 1
+	var n := 26
+	var mm := _make_multimesh(cone, n, Color.WHITE, true)
+	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mm)
+	var mmx := mm.multimesh
+	for i in n:
+		var x := -60.0 + float(i) * 12.0 + rng.randf_range(-4.0, 4.0)
+		var z := -16.0 + rng.randf_range(-12.0, 10.0)
+		var base_y := _height_f(x, z) - 6.0
+		var r := rng.randf_range(16.0, 27.0)
+		var hgt := rng.randf_range(34.0, 58.0)
+		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(r, hgt, r))
+		mmx.set_instance_transform(i, Transform3D(basis, Vector3(x, base_y + hgt * 0.5, z)))
+		var tone := rng.randf_range(0.86, 0.99)
+		mmx.set_instance_color(i, Color(tone * 0.94, tone * 0.96, tone).srgb_to_linear())
+	if mm.material_override is StandardMaterial3D:
+		var m2 := mm.material_override as StandardMaterial3D
+		m2.vertex_color_use_as_albedo = true
+		m2.albedo_color = Color.WHITE
+
+## 幼树层：在森林里散布小树，增加层次
+func _scatter_saplings() -> void:
+	if _sapling_done:
+		return
+	_sapling_done = true
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.9
+	cone.height = 2.4
+	cone.radial_segments = 6
+	cone.rings = 1
+	var n := 1800
+	var mm := _make_multimesh(cone, n, Color.WHITE, true)
+	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mm)
+	var mmx := mm.multimesh
+	for i in n:
+		var x := rng.randf_range(-40.0, 200.0)
+		var z := rng.randf_range(-40.0, 200.0)
+		var h := _height_f(x, z)
+		if h < WATER_LEVEL + 0.22 or h > 22.0:
+			continue
+		var cell := grid.world_to_cell(Vector3(x, 0.0, z))
+		if cell.x >= 0 and cell.y >= 0 and cell.x < MAP and cell.y < MAP:
+			if not grid.footprint_free(cell, Vector2i.ONE):
+				continue
+			if grid.is_road(cell):
+				continue
+		var s := rng.randf_range(0.42, 0.78)
+		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.85, 1.25), s))
+		mmx.set_instance_transform(i, Transform3D(basis, Vector3(x, h + 1.2 * s, z)))
+		var tone := rng.randf_range(0.75, 1.1)
+		mmx.set_instance_color(i, Color(0.16 * tone, 0.30 * tone, 0.15 * tone).srgb_to_linear())
+	if mm.material_override is StandardMaterial3D:
+		var m2 := mm.material_override as StandardMaterial3D
+		m2.vertex_color_use_as_albedo = true
+		m2.albedo_color = Color.WHITE
+
+## 高瘦针叶树：打破轮廓，增加树种多样性
+func _scatter_tall_pines() -> void:
+	if _tall_done:
+		return
+	_tall_done = true
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 1.15
+	cone.height = 7.6
+	cone.radial_segments = 6
+	cone.rings = 1
+	var n := 620
+	var mm := _make_multimesh(cone, n, Color.WHITE, true)
+	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mm)
+	var mmx := mm.multimesh
+	for i in n:
+		var x := rng.randf_range(-30.0, 190.0)
+		var z := rng.randf_range(-30.0, 190.0)
+		var h := _height_f(x, z)
+		if h < WATER_LEVEL + 0.28 or h > 20.0:
+			continue
+		var cell := grid.world_to_cell(Vector3(x, 0.0, z))
+		if cell.x >= 0 and cell.y >= 0 and cell.x < MAP and cell.y < MAP:
+			if not grid.footprint_free(cell, Vector2i.ONE) or grid.is_road(cell):
+				continue
+		var s := rng.randf_range(0.75, 1.25)
+		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s * 0.72, s, s * 0.72))
+		mmx.set_instance_transform(i, Transform3D(basis, Vector3(x, h + 3.7 * s, z)))
+		var tone := rng.randf_range(0.8, 1.05)
+		mmx.set_instance_color(i, Color(0.10 * tone, 0.24 * tone, 0.13 * tone).srgb_to_linear())
+	if mm.material_override is StandardMaterial3D:
+		var m2 := mm.material_override as StandardMaterial3D
+		m2.vertex_color_use_as_albedo = true
+		m2.albedo_color = Color.WHITE
+
 func _place_prop_at(kind: String, pos: Vector3, rot: float) -> void:
 	var p := "res://assets/models/%s.glb" % kind
 	if not ResourceLoader.exists(p):
@@ -1321,12 +1428,24 @@ func _build_decor() -> void:
 	_scatter_flowers()
 	_scatter_shore()
 
+## 把树冠的 StandardMaterial 换成带手绘笔触的材质
+func _apply_foliage(mmi: MultiMeshInstance3D) -> void:
+	if mmi == null:
+		return
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/foliage.gdshader")
+	if m.shader == null:
+		return
+	mmi.material_override = m
+
 func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], birch_cells: Array[Vector2i] = []) -> void:
 	if not pine_cells.is_empty():
 		var n := pine_cells.size()
 		pine_trunk = _make_multimesh(_pine_trunk_mesh(), n, Color(0.24, 0.16, 0.10))
 		pine_leaf = _make_multimesh(_pine_leaf_mesh(), n, Color(0.11, 0.23, 0.12), true)
 		pine_top = _make_multimesh(_pine_leaf_mesh(), n, Color(0.14, 0.28, 0.15), true)
+		_apply_foliage(pine_leaf)
+		_apply_foliage(pine_top)
 		add_child(pine_trunk)
 		add_child(pine_leaf)
 		add_child(pine_top)
@@ -1348,6 +1467,8 @@ func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], bi
 		broad_trunk = _make_multimesh(_broad_trunk_mesh(), n, Color(0.28, 0.19, 0.11))
 		broad_canopy = _make_multimesh(_broad_canopy_mesh(), n, Color(0.20, 0.34, 0.13), true)
 		broad_top = _make_multimesh(_broad_canopy_mesh(), n, Color(0.25, 0.40, 0.16), true)
+		_apply_foliage(broad_canopy)
+		_apply_foliage(broad_top)
 		add_child(broad_trunk)
 		add_child(broad_canopy)
 		add_child(broad_top)
@@ -1369,6 +1490,8 @@ func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], bi
 		birch_trunk = _make_multimesh(_birch_trunk_mesh(), n, Color(0.70, 0.68, 0.62))
 		birch_canopy = _make_multimesh(_birch_canopy_mesh(), n, Color(0.27, 0.40, 0.15), true)
 		birch_top = _make_multimesh(_birch_canopy_mesh(), n, Color(0.32, 0.47, 0.18), true)
+		_apply_foliage(birch_canopy)
+		_apply_foliage(birch_top)
 		add_child(birch_trunk)
 		add_child(birch_canopy)
 		add_child(birch_top)
@@ -2909,7 +3032,7 @@ func _build_demo_town() -> void:
 	for i in 6:
 		var a := TAU * float(i) / 6.0
 		spawn_citizen(Vector3(62.0 + cos(a) * 6.0, 0.0, 66.0 + sin(a) * 5.0))
-	camera.size = 40.0
+	camera.size = 46.0
 	camera_rig.position = Vector3(60.0, 0.0, 62.0)
 	_update_label_scale()
 	_scatter_props()
@@ -2923,6 +3046,9 @@ func _build_demo_town() -> void:
 	_build_church_forecourt()
 	_build_market()
 	_build_quarry_yard()
+	_build_mountain_range()
+	_scatter_saplings()
+	_scatter_tall_pines()
 	_fence_line(Vector2(46.0, 44.0), Vector2(66.0, 44.0))
 	_fence_line(Vector2(74.0, 44.0), Vector2(90.0, 46.0))
 	_fence_line(Vector2(46.0, 46.0), Vector2(46.0, 76.0))

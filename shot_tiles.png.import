@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://br7ejsrniknkt"
-path="res://.godot/imported/最终概念效果图2.png-d893bd1ed75d7dc4ce63efd5a1b6b73f.ctex"
+uid="uid://dqkgmlfdit1i2"
+path="res://.godot/imported/shot_tiles.png-96318ab6340dd573a0846e62d25131b4.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://最终概念效果图2.png"
-dest_files=["res://.godot/imported/最终概念效果图2.png-d893bd1ed75d7dc4ce63efd5a1b6b73f.ctex"]
+source_file="res://shot_tiles.png"
+dest_files=["res://.godot/imported/shot_tiles.png-96318ab6340dd573a0846e62d25131b4.ctex"]
 
 [params]
 

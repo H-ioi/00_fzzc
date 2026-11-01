@@ -121,10 +121,17 @@ void fragment() {
 	}
 
 	vec3 col = base_color.rgb;
-	col *= mix(1.0 - detail_strength, 1.0 + detail_strength, clamp(v, 0.0, 1.0));
+	col *= mix(1.0 - detail_strength * 1.35, 1.0 + detail_strength * 0.85, clamp(v, 0.0, 1.0));
 
 	// 轻微的色相偏移，避免整片死板
 	col *= vec3(1.0 + (v - 0.5) * 0.06, 1.0, 1.0 - (v - 0.5) * 0.05);
+
+	// 手绘笔触：低频拉长的噪声做色块起伏
+	vec2 stroke_uv = vec2(wpos.x * 0.9 + wpos.z * 0.35, wpos.y * 2.2 + wpos.z * 0.8) * 0.55;
+	float stroke = fbm(stroke_uv);
+	col *= mix(0.90, 1.10, stroke);
+	// 轻微色阶量化，模拟颜料块的层次
+	col = floor(col * 26.0) / 26.0;
 
 	ALBEDO = col;
 	EMISSION = emission_color.rgb * emission_strength;
@@ -135,5 +142,5 @@ void fragment() {
 	float e = 0.06;
 	float gx = triplanar(wpos + vec3(e, 0.0, 0.0), n, s * 2.5) - v;
 	float gz = triplanar(wpos + vec3(0.0, 0.0, e), n, s * 2.5) - v;
-	NORMAL = normalize(NORMAL + vec3(gx, 0.0, gz) * 0.12);
+	NORMAL = normalize(NORMAL + vec3(gx, 0.0, gz) * 0.42);
 }

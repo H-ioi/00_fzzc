@@ -4,7 +4,7 @@ render_mode specular_disabled, diffuse_burley;
 uniform vec4 grass_a : source_color = vec4(0.31, 0.35, 0.21, 1.0);
 uniform vec4 grass_b : source_color = vec4(0.38, 0.41, 0.26, 1.0);
 uniform vec4 grass_c : source_color = vec4(0.25, 0.29, 0.17, 1.0);
-uniform vec4 sand_col : source_color = vec4(0.74, 0.67, 0.49, 1.0);
+uniform vec4 sand_col : source_color = vec4(0.82, 0.76, 0.60, 1.0);
 uniform vec4 dirt_col : source_color = vec4(0.40, 0.31, 0.20, 1.0);
 uniform vec4 line_col : source_color = vec4(0.13, 0.18, 0.10, 1.0);
 uniform vec4 dry_col : source_color = vec4(0.44, 0.40, 0.24, 1.0);
@@ -17,7 +17,7 @@ uniform float winter_mix = 0.0;
 uniform float wet = 0.0;
 uniform float water_level = 1.15;
 uniform float cloud_time = 0.0;
-uniform float snow_line = 33.0;
+uniform float snow_line = 6.0;
 uniform sampler2D road_mask : filter_linear, repeat_disable;
 uniform sampler2D dirt_mask : filter_linear, repeat_disable;
 uniform sampler2D plaza_mask : filter_linear, repeat_disable;
@@ -115,7 +115,7 @@ void fragment() {
 	// 水线附近形成河岸沙滩（不再依赖地图边缘）
 	float above = wpos.y - water_level;
 	float wobble = (vnoise(wpos.xz * 0.09) - 0.5) * 0.55;
-	float beach = 1.0 - smoothstep(0.03, 0.16 + wobble * 0.5, above);
+	float beach = 1.0 - smoothstep(0.03, 0.42 + wobble * 0.8, above);
 	beach *= step(-0.45, above);
 	// 沙滩分层：高处干沙更浅，靠近水线湿沙更深
 	float sand_t = smoothstep(-0.30, 1.10, above);
@@ -137,6 +137,14 @@ void fragment() {
 	// 高山雪线：海拔越高越白
 	float snow = smoothstep(snow_line - 2.0, snow_line + 3.0, wpos.y);
 	base = mix(base, vec3(0.93, 0.95, 0.98), snow * 0.94);
+
+	// 手绘草叶笔触：沿斜向拉长的噪声，模拟画笔扫过
+	vec2 suv = vec2(wpos.x * 0.45 + wpos.z * 0.85, wpos.x * -0.30 + wpos.z * 0.40) * 2.4;
+	float stroke = fbm(suv);
+	base *= mix(0.88, 1.10, stroke);
+	float fleck = vnoise(wpos.xz * 7.0);
+	base *= mix(0.95, 1.05, fleck);
+	base = floor(base * 24.0) / 24.0;
 
 	base = mix(base, winter_col.rgb, winter_mix);
 
