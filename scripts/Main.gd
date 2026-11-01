@@ -759,7 +759,7 @@ func _scatter_far_forest() -> void:
 		var x := 64.0 + cos(a) * r
 		var z := 64.0 + sin(a) * r
 		var h := _height_f(x, z)
-		if h < WATER_LEVEL + 0.8:
+		if h < WATER_LEVEL + 0.8 or h > 24.0:
 			continue
 		var s := rng.randf_range(0.72, 1.75)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.95, 1.45), s))
@@ -804,7 +804,7 @@ func _scatter_far_forest() -> void:
 		var x2 := 64.0 + cos(a2) * r2
 		var z2 := 64.0 + sin(a2) * r2
 		var h2 := _height_f(x2, z2)
-		if h2 < WATER_LEVEL + 1.0:
+		if h2 < WATER_LEVEL + 1.0 or h2 > 24.0:
 			continue
 		var s2 := rng.randf_range(0.8, 1.6)
 		var b2 := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s2, s2 * rng.randf_range(0.9, 1.2), s2))
@@ -1300,7 +1300,21 @@ func _build_decor() -> void:
 		else:
 			birch_cells.append(c)
 
-	_build_forest(pine_cells, broad_cells, birch_cells)
+	# 雪线以上不长树
+	var keep_pine: Array[Vector2i] = []
+	var keep_broad: Array[Vector2i] = []
+	var keep_birch: Array[Vector2i] = []
+	for c in pine_cells:
+		if grid.height_at_cell(c) <= 24.0:
+			keep_pine.append(c)
+	for c in broad_cells:
+		if grid.height_at_cell(c) <= 24.0:
+			keep_broad.append(c)
+	for c in birch_cells:
+		if grid.height_at_cell(c) <= 24.0:
+			keep_birch.append(c)
+
+	_build_forest(keep_pine, keep_broad, keep_birch)
 	_scatter_rocks(used)
 	_scatter_bushes(used)
 	_scatter_grass()
