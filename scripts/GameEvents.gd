@@ -158,11 +158,22 @@ static func _good_harvest(rng: RandomNumberGenerator) -> void:
 static func _traveling_merchant(rng: RandomNumberGenerator) -> void:
 	var tools := rng.randf_range(4.0, 9.0)
 	GameState.add("tools", tools)
-	var extra := ""
+	var extras: Array[String] = []
 	if rng.randf() < 0.35:
 		var cloth := rng.randf_range(2.0, 5.0)
 		GameState.add("clothes", cloth)
-		extra = "，顺带补了 %.0f 衣物" % cloth
+		extras.append("%.0f 衣物" % cloth)
+	if rng.randf() < 0.28:
+		var stone := rng.randf_range(8.0, 18.0)
+		GameState.add("stone", stone)
+		extras.append("%.0f 石头" % stone)
+	if rng.randf() < 0.28:
+		var fw := rng.randf_range(10.0, 24.0)
+		GameState.add("firewood", fw)
+		extras.append("%.0f 柴火" % fw)
+	var extra := ""
+	if not extras.is_empty():
+		extra = "，顺带补了 " + "、".join(extras)
 	GameState.log_msg("行商路过，贱卖 %.0f 工具%s。" % [tools, extra])
 
 

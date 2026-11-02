@@ -9,6 +9,7 @@ const MODELS := {
 	"storage": "res://assets/models/storage.glb",
 	"woodcutter": "res://assets/models/woodcutter.glb",
 	"gatherer": "res://assets/models/gatherer.glb",
+	"pasture": "res://assets/models/gatherer.glb",
 	"hunter": "res://assets/models/hunter.glb",
 	"farm": "res://assets/models/farm.glb",
 	"firewood": "res://assets/models/firewood.glb",

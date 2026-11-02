@@ -95,7 +95,7 @@ func daily_update(fire_ratio: float, winter: bool) -> void:
 		var mult := GameState.cloth_factor()
 		var loss := (6.0 + 40.0 * (1.0 - fire_ratio)) * mult
 		if GameState.cold_snap_active():
-			loss *= 1.12
+			loss *= GameState.COLD_SNAP_WARMTH_MULT
 		warmth = maxf(0.0, warmth - loss)
 	else:
 		warmth = minf(100.0, warmth + 25.0)
@@ -383,7 +383,7 @@ func _produce(dt: float) -> void:
 	carry += amt
 	workplace.produced += amt
 	workplace.tick_quarry_extraction(amt)
-	# 副产物直接入库（例如猎人产皮革）；仓满时只入库剩余空间
+	# 副产物直接入库（猎人/牧场等 def.byproduct）；仓满时只入库剩余空间
 	var bp: Dictionary = workplace.def.get("byproduct", {})
 	if not bp.is_empty():
 		var bp_amt := float(bp.get("rate", 0.0)) * mult * days

@@ -17,11 +17,23 @@ const TRADE_INTERVAL := 6
 const TRADE_SELL_AMOUNT := 20.0
 const TRADE_BUY_RATIO := 0.25  ## 卖出 4 份换 1 份
 const TRADE_SELL_KEYS: Array[String] = ["wood", "stone", "food", "firewood", "leather"]
-const TRADE_BUY_KEYS: Array[String] = ["food", "tools", "clothes"]
+const TRADE_BUY_KEYS: Array[String] = ["food", "stone", "firewood", "tools", "clothes"]
 const RES_ZH := {
 	"wood": "木材", "stone": "石头", "food": "食物", "firewood": "柴火",
 	"tools": "工具", "clothes": "衣物", "leather": "皮革",
 }
+## 消耗 / 冬季 / 幸福（Banished 向：冬柴占比高、衣物工具缓磨、幸福慢漂移）
+const WINTER_FIREWOOD_PER_CAPITA := 0.33  ## 原 0.30 +10%：每人每日取暖（6 冬≈2.0 份/人）
+const COLD_SNAP_FIRE_MULT := 1.41  ## 原 1.28 +10%：寒潮日额外柴耗
+const COLD_SNAP_WARMTH_MULT := 1.23  ## 原 1.12 +10%：寒潮日失温加重
+const CLOTH_FIRE_STRESS := 1.87  ## 原 1.7 +10%：缺衣时取暖消耗倍率
+const DAILY_TOOL_WEAR := 0.033  ## 原 0.03 +10%：人均工具日磨损
+const DAILY_CLOTHES_WEAR := 0.022  ## 原 0.02 +10%：人均衣物日磨损
+const HAPPINESS_BASE := 62.0
+const HAPPINESS_TAVERN_DRIFT := 1.44  ## 原 1.6 −10%：酒馆值守日目标上飘
+const HAPPINESS_NO_TAVERN_DRIFT := 0.81  ## 原 0.9 −10%：无酒馆日目标下飘
+const HAPPINESS_MOVE_SPEED := 0.72  ## 原 0.8 −10%：向目标靠拢速度
+const SEASON_WORK_MULTS: Array[float] = [1.0, 1.05, 1.0, 0.81]  ## 冬 0.90→0.81 −10%
 
 var stock: Dictionary = {
 	"wood": 250.0,
@@ -34,7 +46,7 @@ var stock: Dictionary = {
 }
 
 var capacity := BASE_CAPACITY
-var happiness := 62.0
+var happiness := HAPPINESS_BASE
 var t := 0.0
 var speed := 1.0
 var paused := false
@@ -152,7 +164,7 @@ func apply_save_event_fields(data: Dictionary) -> void:
 
 ## 全局季节生产修正（与建筑 seasonal 叠乘）
 func season_work_mult() -> float:
-	var m: float = [1.0, 1.05, 1.0, 0.90][season()]
+	var m: float = SEASON_WORK_MULTS[season()]
 	if cold_snap_active():
 		m *= 0.88
 	return m
@@ -261,9 +273,9 @@ func resource_alert_summary() -> String:
 	if tool_factor() < 0.75:
 		tags.append("缺工具")
 	var fw := float(stock.get("firewood", 0.0))
-	if is_winter() and pop > 0 and fw < pop * 0.45:
+	if is_winter() and pop > 0 and fw < pop * WINTER_FIREWOOD_PER_CAPITA * 1.5:
 		tags.append("缺柴")
-	elif (season() == 2 or is_winter()) and fw < pop * float(DAYS_PER_SEASON) * 0.30:
+	elif (season() == 2 or is_winter()) and fw < pop * float(DAYS_PER_SEASON) * WINTER_FIREWOOD_PER_CAPITA:
 		tags.append("柴紧")
 	return " · ".join(tags)
 
@@ -277,9 +289,9 @@ func resource_label_warn(res: String) -> bool:
 			var fw := float(stock.get("firewood", 0.0))
 			if ui_no_firewood() or ui_winter_crisis():
 				return true
-			if is_winter() and pop > 0 and fw < pop * 0.45:
+			if is_winter() and pop > 0 and fw < pop * WINTER_FIREWOOD_PER_CAPITA * 1.5:
 				return true
-			return (season() == 2 or is_winter()) and fw < pop * float(DAYS_PER_SEASON) * 0.30
+			return (season() == 2 or is_winter()) and fw < pop * float(DAYS_PER_SEASON) * WINTER_FIREWOOD_PER_CAPITA
 		"tools":
 			return tool_factor() < 0.75
 		_:
@@ -326,9 +338,26 @@ func trade_buy_catalog() -> Array:
 		})
 	return rows
 
+func trade_need_firewood() -> bool:
+	var pop := maxi(1, citizens.size())
+	var fw := float(stock.get("firewood", 0.0))
+	if ui_no_firewood() or ui_winter_crisis():
+		return true
+	if is_winter() and pop > 0 and fw < pop * WINTER_FIREWOOD_PER_CAPITA * 1.5:
+		return true
+	return (season() == 2 or is_winter()) and fw < pop * float(DAYS_PER_SEASON) * WINTER_FIREWOOD_PER_CAPITA
+
+func trade_need_stone() -> bool:
+	var pop := maxi(1, citizens.size())
+	return float(stock.get("stone", 0.0)) < maxf(50.0, float(pop) * 3.0)
+
 func _trade_pick_buy() -> String:
 	if food_starving_risk():
 		return "food"
+	if trade_need_firewood():
+		return "firewood"
+	if trade_need_stone():
+		return "stone"
 	if float(stock.get("tools", 0.0)) > float(stock.get("clothes", 0.0)):
 		return "clothes"
 	return "tools"
@@ -389,12 +418,12 @@ func tick_happiness() -> void:
 		if is_instance_valid(b) and b.complete and b.def_id == "tavern" and not b.workers.is_empty():
 			has_tavern = true
 			break
-	var target := 62.0
+	var target := HAPPINESS_BASE
 	if has_tavern:
-		target = minf(100.0, happiness + 1.6)
+		target = minf(100.0, happiness + HAPPINESS_TAVERN_DRIFT)
 	else:
-		target = maxf(0.0, happiness - 0.9)
-	happiness = move_toward(happiness, target, 0.8)
+		target = maxf(0.0, happiness - HAPPINESS_NO_TAVERN_DRIFT)
+	happiness = move_toward(happiness, target, HAPPINESS_MOVE_SPEED)
 
 func tool_efficiency_pct() -> int:
 	return int(round(tool_factor() * 100.0))
@@ -467,7 +496,7 @@ func tool_factor() -> float:
 ## 衣物充足度：不足时冬季取暖消耗放大
 func cloth_factor() -> float:
 	var need := maxf(3.0, float(citizens.size()) * 0.5)
-	return 1.0 if float(stock.get("clothes", 0.0)) >= need else 1.7
+	return 1.0 if float(stock.get("clothes", 0.0)) >= need else CLOTH_FIRE_STRESS
 
 ## 士气系数：幸福度过低时居民干活变慢
 func mood_factor() -> float:
@@ -509,16 +538,16 @@ func _new_day() -> void:
 	var pop := citizens.size()
 	if pop > 0:
 		# 工具与衣物磨损
-		stock["tools"] = maxf(0.0, float(stock.get("tools", 0.0)) - pop * 0.03)
-		stock["clothes"] = maxf(0.0, float(stock.get("clothes", 0.0)) - pop * 0.02)
+		stock["tools"] = maxf(0.0, float(stock.get("tools", 0.0)) - pop * DAILY_TOOL_WEAR)
+		stock["clothes"] = maxf(0.0, float(stock.get("clothes", 0.0)) - pop * DAILY_CLOTHES_WEAR)
 		if float(stock.get("tools", 0.0)) <= 0.0 and total_days() % 6 == 0:
 			log_msg("工具耗尽，生产效率下降！")
 		# 食物由居民自己回家吃饭消耗（见 Citizen._rest），这里只结算冬季取暖。
 		var fire_ratio := 1.0
 		if is_winter():
-			var need_fire := pop * 0.30
+			var need_fire := pop * WINTER_FIREWOOD_PER_CAPITA
 			if cold_snap_active():
-				need_fire *= 1.28
+				need_fire *= COLD_SNAP_FIRE_MULT
 			var got_fire := minf(need_fire, float(stock.get("firewood", 0.0)))
 			stock["firewood"] = float(stock.get("firewood", 0.0)) - got_fire
 			fire_ratio = got_fire / need_fire if need_fire > 0.0 else 1.0
@@ -589,7 +618,7 @@ func _tick_resource_warnings(pop: int) -> void:
 		_edge_low_tools = false
 
 	var fire := float(stock.get("firewood", 0.0))
-	var need_winter := pop * float(DAYS_PER_SEASON) * 0.30
+	var need_winter := pop * float(DAYS_PER_SEASON) * WINTER_FIREWOOD_PER_CAPITA
 	var fire_low_prep := (season() == 2 or is_winter()) and fire < need_winter
 	if fire_low_prep and not _edge_low_fire_prep:
 		log_msg("柴火储备不足（%d），入冬前多囤柴。" % int(fire))

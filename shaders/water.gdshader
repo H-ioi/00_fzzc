@@ -1,10 +1,10 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
-uniform vec4 shallow_col : source_color = vec4(0.13, 0.52, 0.56, 1.0);
-uniform vec4 deep_col : source_color = vec4(0.04, 0.20, 0.30, 1.0);
-uniform vec4 foam_col : source_color = vec4(0.90, 0.94, 0.94, 1.0);
-uniform vec4 sky_col : source_color = vec4(0.50, 0.68, 0.76, 1.0);
+uniform vec4 shallow_col : source_color = vec4(0.17, 0.56, 0.60, 1.0);
+uniform vec4 deep_col : source_color = vec4(0.04, 0.24, 0.38, 1.0);
+uniform vec4 foam_col : source_color = vec4(0.92, 0.95, 0.93, 1.0);
+uniform vec4 sky_col : source_color = vec4(0.52, 0.70, 0.82, 1.0);
 uniform sampler2D depth_mask : filter_linear, repeat_disable;
 uniform sampler2D reflection_tex : filter_linear, repeat_disable;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
