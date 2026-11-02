@@ -54,7 +54,7 @@
 | 存档 / 读档 | F5 / F9 |
 | 随机事件调试 | F8（开关与事件权重 ±0.1，写入存档的 `event_weights`） |
 | 取消建造 / 取消选中 | 右键 或 Esc |
-| 选中建筑 | 左键点击 |
+| 选中建筑 | 左键点击；有岗位建筑可 **优先指派** / **锁定工人**（读档保留） |
 
 道路可以穿过森林（自动清树）并能爬坡，陡处自动铺石阶。
 
@@ -108,8 +108,9 @@
 | `cold_snap_days` | 寒潮剩余天数（缺省 `0`） |
 | `random_events_enabled` | 是否启用随机事件与难民（缺省 `true`） |
 | `event_weights` | 事件 id → 权重倍率（缺省或空对象 → `GameEvents.WEIGHT_DEFAULTS`） |
-| `dead_count` | 累计死亡人数（缺省 `0`；墓碑场景不单独存档，读档后不会重建） |
-| `buildings[]` | `id`、`cell`、`complete`、`progress`、`produced`、`burning`、`burn_timer`、`worker_ids` / `builder_ids`（居民数组下标） |
+| `dead_count` | 累计死亡人数（缺省 `0`） |
+| `tombstones[]` | 墓碑世界坐标 `[x, z, rot_y]`（缺省 `[]`；旧档无此键则只恢复 `dead_count`、不重建场景墓碑） |
+| `buildings[]` | `id`、`cell`、`complete`、`progress`、`produced`、`burning`、`burn_timer`、`worker_ids` / `builder_ids`（居民下标）；可选 `lock_workers`、`job_priority` |
 | `citizens[]` | 平面坐标 `pos`、`age`（游戏日）、`hunger` / `warmth` / `health`、`sick`、`carry` / `carry_res`、`home` / `work` / `site`（建筑下标） |
 
 读档后会重算寻路阻挡、重新分配岗位，并 `_relocate_citizens_after_load` 修正卡在固体格上的居民；事件相关字段经 `GameState.apply_save_event_fields` 恢复（旧档缺键用上表缺省）。
@@ -156,14 +157,14 @@ $e = 'D:\04_Godot\Godot_v4.7.2-stable_win64_console.exe'
 `--autotest` 末尾 `[8]` 与 `--savetest` 的 `before` / `after` 字符串应一致（随机事件已关）。
 
 ```
-[8] 第2年 夏 第3天 | 人口=14 | 木=73 石=112 食=341 柴=91 | 建筑=12 | 仓容=1100
-SAVETEST before=pop=8 bld=9 wood=250 food=400 fire=80 day=1
-SAVETEST after =pop=8 bld=9 wood=250 food=400 fire=80 day=1
-SAVETEST events before=ev=false fire=0.35 cold=0
-SAVETEST events after =ev=false fire=0.35 cold=0
+[8] 第2年 夏 第3天 | 人口=13 | 木=256 石=120 食=394 柴=94 | 建筑=12 | 仓容=1100
+SAVETEST before=pop=9 bld=9 wood=250 food=400 fire=80 day=1
+SAVETEST after =pop=9 bld=9 wood=250 food=400 fire=80 day=1
+SAVETEST events before=ev=false fire=0.35 cold=2
+SAVETEST events after =ev=false fire=0.35 cold=2
 ```
 
-说明：`--autotest` 内猎人/农田通过 `find_build_cell` 动态选格，正常不应再出现 `AUTOPLAY 建造失败`。
+说明：`--autotest` 建造计划**全部**经 `find_build_cell` 选址并以免费 instant 完工，不应出现 `AUTOPLAY 建造失败`；`SELFTEST` 校验学堂/码头放置与存档 v2 事件字段内存往返。
 
 ## 目录
 

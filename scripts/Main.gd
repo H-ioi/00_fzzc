@@ -133,7 +133,7 @@ func _build_environment() -> void:
 	var sky := Sky.new()
 	var sm := ProceduralSkyMaterial.new()
 	sm.sky_top_color = Color(0.22, 0.40, 0.70)
-	sm.sky_horizon_color = Color(0.87, 0.80, 0.68)
+	sm.sky_horizon_color = Color(0.90, 0.78, 0.62)
 	sm.ground_bottom_color = Color(0.10, 0.12, 0.10)
 	sm.ground_horizon_color = Color(0.55, 0.56, 0.48)
 	sky.sky_material = sm
@@ -144,17 +144,17 @@ func _build_environment() -> void:
 	env.ambient_light_energy = 0.52
 	env.ambient_light_sky_contribution = 0.0
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.18
+	env.tonemap_exposure = 1.14
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.74, 0.78, 0.84)
-	env.fog_density = 0.0011
-	env.fog_aerial_perspective = 0.25
+	env.fog_light_color = Color(0.78, 0.76, 0.72)
+	env.fog_density = 0.00125
+	env.fog_aerial_perspective = 0.32
 	env.ssao_enabled = true
 	env.ssao_radius = 2.4
 	env.ssao_intensity = 2.8
 	env.glow_enabled = true
-	env.glow_intensity = 0.42
-	env.glow_bloom = 0.12
+	env.glow_intensity = 0.48
+	env.glow_bloom = 0.14
 	env.glow_hdr_threshold = 0.85
 	env.adjustment_enabled = false
 	env.adjustment_contrast = 1.0
@@ -163,9 +163,9 @@ func _build_environment() -> void:
 	add_child(we)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-42, -40, 0)
-	sun.light_energy = 2.15
-	sun.light_color = Color(1.0, 0.93, 0.80)
+	sun.rotation_degrees = Vector3(-46, -38, 0)
+	sun.light_energy = 2.05
+	sun.light_color = Color(1.0, 0.91, 0.76)
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 220.0
 	sun.shadow_bias = 0.05
@@ -2184,7 +2184,11 @@ func _spawn_tombstone(c: Citizen) -> void:
 	elif c.home != null and is_instance_valid(c.home):
 		anchor = c.home.global_position + Vector3(randf_range(-1.4, 1.4), 0.0, randf_range(2.0, 3.6))
 	var pos := grid.nearest_free_point(anchor)
+	_add_tombstone_visual(pos, randf() * TAU)
+
+func _add_tombstone_visual(pos: Vector3, rot_y: float) -> void:
 	var stone := Node3D.new()
+	stone.set_meta("tombstone", true)
 	var slab := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.52, 0.72, 0.14)
@@ -2208,7 +2212,20 @@ func _spawn_tombstone(c: Citizen) -> void:
 	stone.add_child(mark)
 	props_root.add_child(stone)
 	stone.position = Vector3(pos.x, grid.height_at_world(pos.x, pos.z), pos.z)
-	stone.rotation.y = randf() * TAU
+	stone.rotation.y = rot_y
+
+func _clear_tombstone_props() -> void:
+	for child in props_root.get_children():
+		if child.get_meta("tombstone", false):
+			child.queue_free()
+
+func _restore_tombstones(data: Dictionary) -> void:
+	for td in data.get("tombstones", []):
+		if typeof(td) != TYPE_ARRAY or (td as Array).size() < 2:
+			continue
+		var a: Array = td
+		var ry := float(a[2]) if a.size() > 2 else 0.0
+		_add_tombstone_visual(Vector3(float(a[0]), 0.0, float(a[1])), ry)
 
 func _reconcile_assignments() -> void:
 	for c in GameState.citizens:
@@ -2716,9 +2733,13 @@ func save_game() -> void:
 		"random_events_enabled": GameState.random_events_enabled,
 		"event_weights": GameState.event_weights,
 		"dead_count": GameState.dead_count,
+		"tombstones": [],
 		"buildings": [],
 		"citizens": [],
 	}
+	for child in props_root.get_children():
+		if child.get_meta("tombstone", false):
+			data["tombstones"].append([child.position.x, child.position.z, child.rotation.y])
 	for b in GameState.buildings:
 		if not is_instance_valid(b):
 			continue
@@ -2791,6 +2812,7 @@ func load_game() -> void:
 		if is_instance_valid(c):
 			c.queue_free()
 	GameState.citizens.clear()
+	_clear_tombstone_props()
 	grid.occupied.clear()
 	grid.road_cells.clear()
 	for x in grid.map_size:
@@ -2858,6 +2880,7 @@ func load_game() -> void:
 			placed[si].add_builder(c)
 
 	_relocate_citizens_after_load()
+	_restore_tombstones(data)
 	_assign_jobs()
 	select(null)
 	_rebuild_road_mask()
@@ -2913,23 +2936,22 @@ func _handle_cmdline() -> void:
 	elif "--savetest" in args:
 		GameState.speed = 4.0
 		GameState.verbose = true
-		GameState.random_events_enabled = false
-		GameState.event_weights["fire"] = 0.35
-		GameState.cold_snap_days = 2
 		place_building("woodcutter", Vector2i(24, 28), true, true)
 		place_building("house", Vector2i(43, 30), true, false)
 		for i in 3:
 			place_building("road", Vector2i(40 + i, 32), true, true)
 		await get_tree().create_timer(5.0).timeout
+		GameState.random_events_enabled = false
+		GameState.event_weights["fire"] = 0.35
+		GameState.cold_snap_days = 2
 		var before := _snapshot()
+		var ev_before := _event_snapshot()
 		save_game()
 		for b in GameState.buildings.duplicate():
 			demolish(b, false)
 		await get_tree().create_timer(1.0).timeout
 		print("SAVETEST 清空后: ", _snapshot())
 		load_game()
-		await get_tree().create_timer(1.0).timeout
-		var ev_before := _event_snapshot()
 		print("SAVETEST before=", before)
 		print("SAVETEST after =", _snapshot())
 		print("SAVETEST events before=", ev_before)
@@ -3015,6 +3037,8 @@ func _handle_cmdline() -> void:
 			_cut_shadows(str(args[args.find("--cutshadow") + 1]))
 		if "--dusk" in args:
 			_apply_dusk()
+		elif "--town" in args:
+			_apply_shot_golden()
 		if "--rain" in args:
 			set_weather(true)
 			if not GameState.is_winter():
@@ -3225,10 +3249,15 @@ func _cut_shadows(which: String) -> void:
 		for m in (t as Node).find_children("*", "MeshInstance3D", true, false):
 			(m as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-## 黄昏/夜晚（命令行强制）
+## 演示截图：对齐概念 v3 的暖色斜照（非正午）
+func _apply_shot_golden() -> void:
+	_force_dusk = true
+	_set_daylight(0.52)
+
+## 黄昏/夜晚（命令行强制，偏晚但不全红）
 func _apply_dusk() -> void:
 	_force_dusk = true
-	_set_daylight(1.0)
+	_set_daylight(0.74)
 
 func _build_demo_town() -> void:
 	var layout := [
