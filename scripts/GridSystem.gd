@@ -89,6 +89,12 @@ func set_solid(cell: Vector2i, size: Vector2i, solid: bool) -> void:
 			if in_bounds(c):
 				astar.set_point_solid(c, solid)
 
+## 仅完工的非道路建筑阻挡寻路；工地只占位、不挡路，便于工人靠近施工
+func sync_building_block(b: Building) -> void:
+	if b.is_road():
+		return
+	set_solid(b.cell, b.size, b.complete)
+
 func is_free_cell(c: Vector2i) -> bool:
 	return in_bounds(c) and not astar.is_point_solid(c)
 
@@ -128,7 +134,7 @@ func find_path(from_world: Vector3, to_world: Vector3) -> Array[Vector3]:
 	var ids := astar.get_id_path(a, b)
 	for id in ids:
 		var p := astar.get_point_position(id)
-		result.append(Vector3(p.x, 0.0, p.y))
+		result.append(Vector3(p.x, height_at_world(p.x, p.y), p.y))
 	if not result.is_empty():
 		result.remove_at(0)
 	return result
@@ -163,7 +169,10 @@ func is_water(c: Vector2i) -> bool:
 func set_road(c: Vector2i, on: bool) -> void:
 	if not in_bounds(c):
 		return
-	road_cells[c] = on
+	if on:
+		road_cells[c] = true
+	else:
+		road_cells.erase(c)
 	astar.set_point_weight_scale(c, ROAD_WEIGHT if on else 1.0)
 
 func footprint_free(cell: Vector2i, size: Vector2i) -> bool:

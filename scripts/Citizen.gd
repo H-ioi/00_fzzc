@@ -5,7 +5,7 @@ extends Node3D
 
 signal died(c)
 
-enum St { IDLE, TO_WORK, WORK, TO_STORE, TO_HOME, HOME, WANDER, TO_BUILD, BUILD }
+enum St { IDLE, TO_WORK, WORK, TO_STORE, TO_HOME, HOME, WANDER, TO_BUILD, BUILD, TO_PANTRY }
 
 const SPEED := 3.4
 const CARRY_MAX := 12.0
@@ -16,6 +16,8 @@ var home: Building = null
 var workplace: Building = null
 var site: Building = null
 var sick := 0
+## 存活天数（每日 +1）；未满 16 岁为儿童，生产效率折减。
+var age := 0
 var hunger := 100.0
 var warmth := 100.0
 var health := 100.0
@@ -43,7 +45,7 @@ const CHAR_MODEL := "res://assets/models/character.glb"
 
 func setup() -> void:
 	_build_mesh()
-	home = _find_home()
+	ensure_home()
 	_set_state(St.IDLE)
 
 func _process(delta: float) -> void:
@@ -86,10 +88,15 @@ func daily_update(fire_ratio: float, winter: bool) -> void:
 		sick -= 2 if cared else 1
 		health -= 4.0 if cared else 14.0
 		if sick <= 0:
+			sick = 0
 			_clear_sick()
+			GameState.log_msg("一名居民康复了。")
 	if winter:
 		var mult := GameState.cloth_factor()
-		warmth = maxf(0.0, warmth - (6.0 + 40.0 * (1.0 - fire_ratio)) * mult)
+		var loss := (6.0 + 40.0 * (1.0 - fire_ratio)) * mult
+		if GameState.cold_snap_active():
+			loss *= 1.12
+		warmth = maxf(0.0, warmth - loss)
 	else:
 		warmth = minf(100.0, warmth + 25.0)
 	if warmth < 10.0:
@@ -192,7 +199,6 @@ func _smooth_path(pts: Array[Vector3]) -> Array[Vector3]:
 			out.append(p)
 	out.append(pts[pts.size() - 1])
 	return out
-	arrived = false
 
 func _set_state(s: int) -> void:
 	state = s
@@ -215,13 +221,25 @@ func _tick_state(dt: float) -> void:
 		home = null
 	if site != null and (not is_instance_valid(site) or site.complete):
 		site = null
+		if state == St.BUILD or state == St.TO_BUILD:
+			_set_state(St.IDLE)
+
+	if sick > 0 and state in [St.TO_WORK, St.WORK, St.TO_BUILD, St.BUILD]:
+		_go_home()
+		return
 
 	match state:
 		St.IDLE:
 			if home == null:
-				home = _find_home()
-			if hunger < 55.0 and home != null:
-				_go_home()
+				ensure_home()
+			if sick > 0:
+				if hunger < 55.0:
+					_go_meal()
+				else:
+					_go_home()
+				return
+			if hunger < 55.0:
+				_go_meal()
 			elif site != null:
 				_go_build()
 			elif workplace != null:
@@ -236,9 +254,12 @@ func _tick_state(dt: float) -> void:
 				_set_state(St.IDLE)
 				return
 			if hunger < 55.0:
-				_go_home()
+				_go_meal()
 				return
-			if carry >= CARRY_MAX:
+			if carry >= _carry_threshold():
+				_go_store()
+				return
+			if GameState.storage_urgent() and carry > 0.5 and (carry_res == "food" or GameState.room_left() < 40.0):
 				_go_store()
 				return
 			if _flat_dist(global_position, _work_pos) > 2.0:
@@ -259,22 +280,29 @@ func _tick_state(dt: float) -> void:
 		St.TO_BUILD:
 			if arrived:
 				_set_state(St.BUILD)
+		St.TO_PANTRY:
+			if arrived:
+				_eat_from_stock()
+				_resume_after_meal()
 		St.BUILD:
 			if site == null or not is_instance_valid(site) or site.complete:
 				site = null
 				_set_state(St.IDLE)
 				return
 			if hunger < 55.0:
-				_go_home()
+				_go_meal()
 				return
 			if _flat_dist(global_position, _work_pos) > 2.0:
 				_go_build()
 				return
-			site.add_progress(dt / GameState.DAY_SECONDS)
+			site.add_progress(dt / GameState.DAY_SECONDS * work_efficiency())
 
 # ---------------------------------------------------------------- 行为
 
 func _go_work() -> void:
+	if sick > 0:
+		_go_home()
+		return
 	if workplace == null or not is_instance_valid(workplace):
 		_set_state(St.IDLE)
 		return
@@ -283,6 +311,9 @@ func _go_work() -> void:
 	_set_state(St.TO_WORK)
 
 func _go_build() -> void:
+	if sick > 0:
+		_go_home()
+		return
 	if site == null or not is_instance_valid(site) or site.complete:
 		site = null
 		_set_state(St.IDLE)
@@ -308,12 +339,23 @@ func _go_home() -> void:
 	_set_path(home.work_point())
 	_set_state(St.TO_HOME)
 
+func _go_meal() -> void:
+	if home != null and is_instance_valid(home):
+		_go_home()
+		return
+	var store := GameState.find_storage()
+	if store != null:
+		_set_path(store.work_point())
+		_set_state(St.TO_PANTRY)
+	else:
+		_set_state(St.IDLE)
+
 func _wander() -> void:
 	var base := global_position
 	if home != null and is_instance_valid(home):
 		base = home.global_position
 	var ang := randf() * TAU
-	var r := randf_range(2.0, 7.0)
+	var r := randf_range(1.2, 3.5) if sick > 0 else randf_range(2.0, 7.0)
 	var target := base + Vector3(cos(ang) * r, 0.0, sin(ang) * r)
 	_set_path(GameState.grid.nearest_free_point(target))
 	_set_state(St.WANDER)
@@ -323,12 +365,10 @@ func _produce(dt: float) -> void:
 	if p.is_empty():
 		return
 	var days := dt / GameState.DAY_SECONDS
-	var mult := 1.0
-	var seasonal: Array = workplace.def.get("seasonal", [])
-	if seasonal.size() == 4:
-		mult = float(seasonal[GameState.season()])
-	mult *= GameState.tool_factor()
-	mult *= GameState.mood_factor()
+	var mult := workplace.season_mult() * workplace.site_production_mult()
+	mult *= work_efficiency() * GameState.season_work_mult()
+	if mult <= 0.001:
+		return
 	var consume: Dictionary = p.get("consume", {})
 	for k in consume:
 		var need := float(consume[k]) * days
@@ -338,55 +378,122 @@ func _produce(dt: float) -> void:
 		GameState.take(k, float(consume[k]) * days)
 	carry_res = str(p.get("res", "wood"))
 	var amt := float(p.get("rate", 1.0)) * mult * days
+	if amt <= 0.001:
+		return
 	carry += amt
 	workplace.produced += amt
-	# 副产物直接入库（例如猎人产皮革）
+	workplace.tick_quarry_extraction(amt)
+	# 副产物直接入库（例如猎人产皮革）；仓满时只入库剩余空间
 	var bp: Dictionary = workplace.def.get("byproduct", {})
 	if not bp.is_empty():
-		GameState.add(str(bp.get("res", "leather")), float(bp.get("rate", 0.0)) * mult * days)
+		var bp_amt := float(bp.get("rate", 0.0)) * mult * days
+		if bp_amt > 0.001 and GameState.room_left() > 0.001:
+			GameState.add(str(bp.get("res", "leather")), bp_amt)
 	if _body != null:
 		_body.position.y = 0.62 + absf(sin(_bob)) * 0.05
 
+func _carry_threshold() -> float:
+	if carry_res == "food":
+		var pop := maxi(1, GameState.citizens.size())
+		var food := float(GameState.stock.get("food", 0.0))
+		if food < pop * 2.0:
+			return 4.0
+		if food < pop * 3.0:
+			return 6.0
+	if carry_res == "firewood" and (GameState.is_winter() or GameState.season() == 2):
+		var pop2 := maxi(1, GameState.citizens.size())
+		if float(GameState.stock.get("firewood", 0.0)) < pop2 * 2.0:
+			return 6.0
+	return CARRY_MAX
+
 func _deposit() -> void:
 	if carry > 0.0:
-		GameState.add(carry_res, carry)
+		var added := GameState.add(carry_res, carry)
+		if added < carry - 0.01:
+			GameState.log_msg("仓库已满，%.0f %s 未能入库。" % [
+				carry - added, GameState.RES_ZH.get(carry_res, carry_res)])
 		if carry_res == "food":
-			GameState.stat_food_in += carry
-		carry = 0.0
-	if workplace != null and is_instance_valid(workplace):
+			GameState.stat_food_in += added
+		carry = maxf(0.0, carry - added)
+	if sick > 0:
+		_go_home()
+	elif workplace != null and is_instance_valid(workplace):
 		_go_work()
 	else:
 		_set_state(St.IDLE)
 
 func _rest(dt: float) -> void:
-	if hunger < 85.0 and float(GameState.stock.get("food", 0.0)) >= 1.0:
+	if hunger < 85.0:
 		_eat_timer += dt
 		if _eat_timer >= 1.5:
 			_eat_timer = 0.0
-			if GameState.take("food", 1.0):
-				hunger = minf(100.0, hunger + EAT_AMOUNT)
-				GameState.stat_meals += 1
+			_eat_from_stock()
 	else:
 		_eat_timer = 0.0
 
+	if sick > 0:
+		if hunger > 70.0 and state_timer > 10.0 and randf() < 0.06:
+			_wander()
+		return
+
 	if hunger > 70.0 and state_timer > 2.0:
-		if site != null and is_instance_valid(site) and not site.complete:
-			_go_build()
-		elif workplace != null and is_instance_valid(workplace):
-			_go_work()
-		else:
-			_set_state(St.IDLE)
+		_resume_after_meal()
+
+func _eat_from_stock() -> bool:
+	if float(GameState.stock.get("food", 0.0)) < 1.0:
+		return false
+	if GameState.take("food", 1.0):
+		hunger = minf(100.0, hunger + EAT_AMOUNT)
+		GameState.stat_meals += 1
+		return true
+	return false
+
+func is_child() -> bool:
+	return age < GameState.adult_age_days()
+
+func work_efficiency() -> float:
+	var m := GameState.tool_factor() * GameState.mood_factor()
+	if sick > 0:
+		m *= 0.55
+	if is_child():
+		m *= GameState.child_work_mult(self)
+	return m
+
+func ensure_home() -> void:
+	if home != null and is_instance_valid(home):
+		var cap := int(home.def.get("homes", 0))
+		if cap > 0:
+			var n := 0
+			for other in GameState.citizens:
+				if other != self and is_instance_valid(other) and not other.dead and other.home == home:
+					n += 1
+			if n < cap:
+				return
+		home = null
+	home = _find_home()
+
+func _resume_after_meal() -> void:
+	if sick > 0:
+		return
+	if site != null and is_instance_valid(site) and not site.complete:
+		_go_build()
+	elif workplace != null and is_instance_valid(workplace):
+		_go_work()
+	else:
+		_set_state(St.IDLE)
 
 # ---------------------------------------------------------------- 杂项
 
 func _find_home() -> Building:
 	for b in GameState.buildings:
+		if not is_instance_valid(b) or not b.complete:
+			continue
 		var h := int(b.def.get("homes", 0))
 		if h <= 0:
 			continue
 		var n := 0
 		for c in GameState.citizens:
-			if c != self and c.home == b:
+			if c != self and is_instance_valid(c) and not c.dead and c.home == b:
 				n += 1
 		if n < h:
 			return b

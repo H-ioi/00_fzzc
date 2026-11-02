@@ -4,17 +4,18 @@
 
 ## 游戏简介
 
-你被赶到一片陌生的海岸。没有城墙、没有援军，只有几名同伴、一小堆物资，和一片会起伏、会结冰、会下雨的野地。你要做的，和经典《放逐之城》一样：**先让肚子不饿、冬天有柴，再慢慢把伐木、采石、农田、加工和贸易一条链接起来**，让人口与仓库一起涨上去。
+你被赶到一片陌生的海岸。没有城墙、没有援军，只有几名同伴、一小堆物资，和一片会起伏、会结冰、会下雨的野地。你要做的，和经典《放逐之城》一样：**先让肚子不饿、冬天有柴，再慢慢把伐木→柴火、采石→建造、采集/农田/渔猎→口粮、猎人→皮革→裁缝→衣物、铁匠/木工→工具，以及贸易换购一条链接起来**，让人口与仓库一起涨上去。
 
 本作是**可玩的复刻原型**，不是 1:1 还原。它保留了放逐类核心的节奏感——规划布局、指派劳力、盯库存、为过冬留余量——并在一座 **64×64 的程序化岛屿**上把体验跑通：从第一间伐木场到教堂与贸易站，从春播到积雪，从晴天到雨雪。建筑会按工期施工、道路能穿林爬坡，居民会在地图上寻路劳作；幸福度、仓容、工具与衣物消耗、贸易与升级、存档读档都已接入，适合用来验证「这类城镇生存经营在 Godot 里能做到哪一步」。
 
 **你会体验到：**
 
 - **生存经营**：木材、石材、食物、柴火、工具、衣物、皮革等资源与仓库上限；人口增长与日常消耗。
-- **生产网络**：21 种建筑覆盖采集、种植、狩猎、加工与服务；数值由 `data/buildings.json` 驱动。
+- **生产网络**：23 种建筑覆盖采集、种植、狩猎、加工与服务（含学堂学童效率圈、酒馆幸福）；数值由 `data/buildings.json` 驱动。
 - **时间与气候**：昼夜循环、四季更替（含冬季采暖与地表变化）、动态雨雪天气。
 - **世界感**：河谷、湖泊、海岸、远林与场景道具（市场、码头、喷泉、桥梁等），配合程序化材质与后期调色。
 - **操作与辅助**：等距相机、建造菜单与小地图、F5/F9 存读档、空格暂停与倍速。
+- **居民与贸易**：个体有饥饿/体温/健康与瘟疫；医院值守加速康复；死亡累计 `dead_count` 并在教堂南/民居旁立简易墓碑，顶栏可显示「亡 N」；贸易站有人值守时每 6 日自动以 4:1 换购（缺粮时优先「种子→食物」入账，否则工具/衣物），选中贸易站可看可购入预览并额外手动贸易（每日一次）。
 
 技术栈：**Godot 4.7.2 + GDScript**；建筑与道具 **glb** 由 **Blender 5.0** 脚本 `tools/build_assets.py` 程序化生成，运行时无外部贴图依赖。
 
@@ -51,6 +52,7 @@
 | 快速建造 | 1–9（9 是道路） |
 | 铺路 | 选「道路」后<b>按住左键拖动</b>连续铺，右键擦除 |
 | 存档 / 读档 | F5 / F9 |
+| 随机事件调试 | F8（开关与事件权重 ±0.1，写入存档的 `event_weights`） |
 | 取消建造 / 取消选中 | 右键 或 Esc |
 | 选中建筑 | 左键点击 |
 
@@ -72,7 +74,7 @@
 | 动态 | 昼夜循环（80 秒一周，黄昏窗户透光）+ 四季（作物/积雪/风车转速）+ 雨雪天气 |
 | UI | 羊皮纸/木牌主题 + 建筑 3D 缩略图 + 可滚动菜单 + 跟随小地图 |
 
-## 建筑（21 种）
+## 建筑（23 种）
 
 | 类别 | 建筑 |
 |---|---|
@@ -81,7 +83,7 @@
 | 食物 | 采集小屋、猎人小屋、农田、渔码头、风车 |
 | 原料 | 伐木场、采石场、柴火棚 |
 | 加工 | 裁缝铺、铁匠铺、木工坊 |
-| 服务 | 水井、医院、教堂、贸易站 |
+| 服务 | 水井、医院、教堂、学堂、酒馆、贸易站 |
 | 交通 | 道路 |
 
 数值表在 `data/buildings.json`（由 `tools/export_defs.gd` 从 `scripts/BuildingDefs.gd` 导出，**JSON 为运行时权威**）。
@@ -91,6 +93,37 @@
 木桶、板条箱、干草堆、手推车、长椅、路灯、栅栏、小船、鸡、狗、晾衣绳、木料堆、干草车、饮水槽、路牌、菜园、稻草人。
 
 按建筑类型规则化放置（`CTX_WANT`）：住宅配菜园/晾衣绳/木料堆，农田配稻草人/干草车，水井配水槽，仓库/贸易站配路牌。
+
+## 存档（version 2）
+
+`user://save.json`，由 `Main.save_game` / `load_game` 读写（当前仅写入 **version 2**；无 `version` 的旧档勿直接依赖）。
+
+| 字段 | 含义 |
+|---|---|
+| `version` | 固定 `2` |
+| `t` | 游戏时间（秒） |
+| `stock` | 各资源存量 |
+| `happiness` | 幸福度 |
+| `trade_manual_day` | 上次手动贸易的游戏日（-1 表示从未） |
+| `cold_snap_days` | 寒潮剩余天数（缺省 `0`） |
+| `random_events_enabled` | 是否启用随机事件与难民（缺省 `true`） |
+| `event_weights` | 事件 id → 权重倍率（缺省或空对象 → `GameEvents.WEIGHT_DEFAULTS`） |
+| `dead_count` | 累计死亡人数（缺省 `0`；墓碑场景不单独存档，读档后不会重建） |
+| `buildings[]` | `id`、`cell`、`complete`、`progress`、`produced`、`burning`、`burn_timer`、`worker_ids` / `builder_ids`（居民数组下标） |
+| `citizens[]` | 平面坐标 `pos`、`age`（游戏日）、`hunger` / `warmth` / `health`、`sick`、`carry` / `carry_res`、`home` / `work` / `site`（建筑下标） |
+
+读档后会重算寻路阻挡、重新分配岗位，并 `_relocate_citizens_after_load` 修正卡在固体格上的居民；事件相关字段经 `GameState.apply_save_event_fields` 恢复（旧档缺键用上表缺省）。
+
+## 随机事件（GameEvents）
+
+`GameEvents.try_daily` 由 `Main._try_disaster` 每日调用；`GameEvents.try_refugees` 在春季额外判定难民。开关与权重在 **`GameState`**（无 UI，可脚本改）：
+
+| 变量 | 说明 |
+|---|---|
+| `random_events_enabled` | `false` 关闭全部随机事件与难民（`--autotest` 会自动关闭） |
+| `event_weights` | 键 → 倍率，默认见 `GameEvents.WEIGHT_DEFAULTS`：`fire`、`plague`、`food_shortage`、`cold_snap`、`good_harvest`、`traveling_merchant`、`refugees`（1.0 = 设计基准日概率） |
+
+建成建筑 **&lt;3** 时不触发；前期日数少、建筑少时负面事件另有衰减系数。火灾点燃后蔓延/扑灭逻辑仍在 `Main._tick_fires`。调试时可按 **F8** 打开面板（详见操作表）。
 
 ## 测试与截图
 
@@ -103,7 +136,7 @@ $e = 'D:\04_Godot\Godot_v4.7.2-stable_win64_console.exe'
 
 | 截图参数 | 效果 |
 |---|---|
-| `--shot --town` | 演示城镇 |
+| `--shot --town` | 演示城镇（默认 `--at 54 66 --size 38`） |
 | `--shot --winter --town` | 冬季 |
 | `--shot --town --dusk` | 黄昏（强制） |
 | `--shot --town --rain` | 雨天 |
@@ -120,18 +153,25 @@ $e = 'D:\04_Godot\Godot_v4.7.2-stable_win64_console.exe'
 
 ## 自测基线
 
+`--autotest` 末尾 `[8]` 与 `--savetest` 的 `before` / `after` 字符串应一致（随机事件已关）。
+
 ```
-[8] 第2年 夏 第3天 | 人口=15 | 木≈89 石=112 食≈364 柴≈125 | 建筑=12 | 仓容=1100
-SAVETEST before = after （存读档完全一致）
+[8] 第2年 夏 第3天 | 人口=14 | 木=73 石=112 食=341 柴=91 | 建筑=12 | 仓容=1100
+SAVETEST before=pop=8 bld=9 wood=250 food=400 fire=80 day=1
+SAVETEST after =pop=8 bld=9 wood=250 food=400 fire=80 day=1
+SAVETEST events before=ev=false fire=0.35 cold=0
+SAVETEST events after =ev=false fire=0.35 cold=0
 ```
+
+说明：`--autotest` 内猎人/农田通过 `find_build_cell` 动态选格，正常不应再出现 `AUTOPLAY 建造失败`。
 
 ## 目录
 
 ```
-scripts/     Main.gd（世界/建造/命令）、GameState.gd（资源/时间）、Building.gd、Citizen.gd、
-             Critter.gd、GridSystem.gd、GameUI.gd、ModelPaint.gd、BuildingDefs.gd
+scripts/     Main.gd（世界/建造/命令）、GameState.gd（资源/时间/贸易/幸福）、GameEvents.gd（随机事件）、
+             Building.gd、Citizen.gd、Critter.gd、GridSystem.gd、GameUI.gd、ModelPaint.gd、BuildingDefs.gd
 shaders/     ground / water / surface / grade / smoke / rain
-assets/models/  21 个建筑 glb + 17 个道具 glb + character.glb
+assets/models/  建筑 glb（学堂暂复用 church）+ 17 个道具 glb + character.glb
 data/        buildings.json
 tools/       build_assets.py（Blender 生成）、export_defs.gd、concept_render.py 等
 ```

@@ -22,10 +22,22 @@ const MODELS := {
 	"house_manor": "res://assets/models/house_manor.glb",
 	"windmill": "res://assets/models/windmill.glb",
 	"church": "res://assets/models/church.glb",
+	"school": "res://assets/models/church.glb",
 	"dock": "res://assets/models/dock.glb",
 	"house_row": "res://assets/models/house_row.glb",
 	"carpenter": "res://assets/models/carpenter.glb",
+	"tavern": "res://assets/models/tavern.glb",
 }
+
+## 水井消防：与 Main._tick_fires / _ignite_random 共用同一组概率
+const WELL_IGNITE_BLOCK := 0.65
+const WELL_EXTINGUISH := 0.75
+const WELL_FIRE_SPREAD := 0.05
+const FIRE_SPREAD := 0.16
+
+## 采石场：由 Main 注入，统计/消耗地图石矿
+static var quarry_rock_count: Callable = Callable()
+static var quarry_take_rock: Callable = Callable()
 
 var blades: Node3D = null
 var smoke: CPUParticles3D = null
@@ -47,6 +59,16 @@ var need_work := 0.0
 
 var burning := false
 var burn_timer := 0.0
+
+## 当日已付学堂维护费，学童加成生效
+var school_running := false
+
+## 锁定后自动排班不会把在岗工人调离（病亡除外）。
+var lock_workers := false
+## 自动 `_assign_jobs` 时优先补满岗位。
+var job_priority := false
+
+var _quarry_extract := 0.0
 
 var _visual: Node3D
 var _scaffold: Node3D
@@ -90,8 +112,38 @@ func is_well() -> bool:
 func is_hospital() -> bool:
 	return bool(def.get("hospital", false))
 
+func is_school() -> bool:
+	return bool(def.get("school", false))
+
 func well_radius() -> float:
 	return float(def.get("radius", 12.0))
+
+## 覆盖该世界坐标的已建成且当日开课的学堂（水平距离 ≤ radius）
+static func school_covering(pos: Vector3) -> Building:
+	var best: Building = null
+	var best_d := INF
+	for other in GameState.buildings:
+		if not is_instance_valid(other) or not other.complete or not other.is_school():
+			continue
+		if not other.school_running:
+			continue
+		var d := pos.distance_to(other.global_position)
+		if d <= other.well_radius() and d < best_d:
+			best = other
+			best_d = d
+	return best
+
+## 是否有已建成水井覆盖该建筑（水平距离 ≤ 水井 radius）
+static func covered_by_well(target: Building) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+	var pos := target.global_position
+	for other in GameState.buildings:
+		if not is_instance_valid(other) or not other.complete or not other.is_well():
+			continue
+		if pos.distance_to(other.global_position) <= other.well_radius():
+			return true
+	return false
 
 func slots() -> int:
 	return 0 if not complete else int(def.get("slots", 0))
@@ -110,6 +162,8 @@ func add_worker(c) -> void:
 		return
 	workers.append(c)
 	c.workplace = self
+	if c.has_method("ensure_home"):
+		c.ensure_home()
 
 func remove_worker(c) -> void:
 	workers.erase(c)
@@ -119,13 +173,59 @@ func remove_worker(c) -> void:
 func add_builder(c) -> void:
 	if builders.has(c):
 		return
+	if is_instance_valid(c) and c.site != null and c.site != self:
+		c.site.remove_builder(c)
 	builders.append(c)
+	if is_instance_valid(c):
+		c.site = self
 
 func remove_builder(c) -> void:
 	builders.erase(c)
+	if is_instance_valid(c) and c.site == self:
+		c.site = null
+		if c.state == Citizen.St.BUILD or c.state == Citizen.St.TO_BUILD:
+			c._set_state(Citizen.St.IDLE)
 
 func work_point() -> Vector3:
 	return GameState.grid.nearest_free_point(global_position)
+
+## 建筑 seasonal 表（春/夏/秋/冬），无表则 1.0
+func season_mult() -> float:
+	var seasonal: Array = def.get("seasonal", [])
+	if seasonal.size() == 4:
+		return float(seasonal[GameState.season()])
+	return 1.0
+
+## 占地外一圈是否存在水面（与 Main 放置校验一致）
+static func footprint_near_water(cell: Vector2i, size: Vector2i) -> bool:
+	if GameState.grid == null:
+		return false
+	for x in range(cell.x - 1, cell.x + size.x + 1):
+		for y in range(cell.y - 1, cell.y + size.y + 1):
+			if GameState.grid.is_water(Vector2i(x, y)):
+				return true
+	return false
+
+## 场地修正：码头离水、采石场矿脉等（与 BuildingDefs seasonal 叠乘）
+func site_production_mult() -> float:
+	if def_id == "dock" and bool(def.get("needs_water", false)):
+		return 1.0 if footprint_near_water(cell, size) else 0.0
+	if def_id == "quarry" and quarry_rock_count.is_valid():
+		var n: int = int(quarry_rock_count.call(cell, size))
+		if n <= 0:
+			return 0.0
+		return clampf(float(n) / 4.0, 0.4, 1.0)
+	return 1.0
+
+## 采石累计产出后消耗一块地图石矿
+func tick_quarry_extraction(amount: float) -> void:
+	if def_id != "quarry" or amount <= 0.001 or not quarry_take_rock.is_valid():
+		return
+	_quarry_extract += amount
+	while _quarry_extract >= 8.0:
+		_quarry_extract -= 8.0
+		if not bool(quarry_take_rock.call(cell, size)):
+			break
 
 # ---------------------------------------------------------------- 施工
 
@@ -160,6 +260,8 @@ func _complete_now() -> void:
 	builders.clear()
 	apply_season_visual(GameState.is_winter())
 	GameState.log_msg("%s 建造完成" % str(def.get("name", def_id)))
+	if GameState.grid != null:
+		GameState.grid.sync_building_block(self)
 	completed.emit(self)
 
 ## 原地升级：换成下一级的数据与外观，重新变回工地
@@ -187,9 +289,15 @@ func begin_upgrade() -> void:
 	_progress_label = null
 
 	_build_visual()
+	_add_skirt()
+	_build_contact_shadow()
+	_add_smoke()
+	_build_crops()
 	_add_label()
 	_visual.visible = false
 	_build_scaffold()
+	if GameState.grid != null:
+		GameState.grid.sync_building_block(self)
 
 ## 农田在冬天换成雪色，避免雪地里还长着绿油油的麦子
 ## 重新套用材质（昼夜切换时用）
@@ -274,8 +382,7 @@ func _process(delta: float) -> void:
 		# 只有建好并且有工人时才转
 		var spinning := complete and not workers.is_empty()
 		if spinning:
-			# 叶片在 XY 平面内，绕 Z 轴转；秋收磨面最忙转得最快
-			var spd: float = [1.2, 1.7, 2.6, 0.7][GameState.season()]
+			var spd := 2.0 * season_mult()
 			blades.rotation.z += delta * spd
 	if _flame == null:
 		return

@@ -4,11 +4,6 @@ extends Node3D
 const CELL := GridSystem.CELL
 const MAP := 64
 const WATER_LEVEL := 1.15
-const BUILD_ORDER: Array[String] = [
-	"woodcutter", "gatherer", "hunter", "farm",
-	"firewood", "house", "storage", "quarry", "road",
-]
-
 var grid: GridSystem
 var terrain_mat: ShaderMaterial
 var water_mat: ShaderMaterial
@@ -1248,11 +1243,40 @@ func _near_building(pos: Vector3, radius: float) -> bool:
 
 ## 占地周围一圈是否存在水面
 func _near_water(cell: Vector2i, size: Vector2i) -> bool:
-	for x in range(cell.x - 1, cell.x + size.x + 1):
-		for y in range(cell.y - 1, cell.y + size.y + 1):
-			if grid.is_water(Vector2i(x, y)):
-				return true
-	return false
+	return Building.footprint_near_water(cell, size)
+
+func _bind_production_hooks() -> void:
+	Building.quarry_rock_count = _quarry_rocks_near
+	Building.quarry_take_rock = _quarry_take_nearest_rock
+
+func _quarry_rocks_near(cell: Vector2i, size: Vector2i, pad: int = 4) -> int:
+	var n := 0
+	for x in range(cell.x - pad, cell.x + size.x + pad):
+		for y in range(cell.y - pad, cell.y + size.y + pad):
+			if rock_lookup.has(Vector2i(x, y)):
+				n += 1
+	return n
+
+func _quarry_take_nearest_rock(cell: Vector2i, size: Vector2i) -> bool:
+	var mid := Vector2i(cell.x + size.x / 2, cell.y + size.y / 2)
+	var best := Vector2i(-99999, -99999)
+	var best_d := 99999
+	for x in range(cell.x - 5, cell.x + size.x + 5):
+		for y in range(cell.y - 5, cell.y + size.y + 5):
+			var c := Vector2i(x, y)
+			if not rock_lookup.has(c):
+				continue
+			var d := absi(c.x - mid.x) + absi(c.y - mid.y)
+			if d < best_d:
+				best_d = d
+				best = c
+	if best_d >= 99999 or rock_mm == null:
+		return false
+	var k: int = rock_lookup[best]
+	var zero := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+	rock_mm.multimesh.set_instance_transform(k, zero)
+	rock_lookup.erase(best)
+	return true
 
 # ---------------------------------------------------------------- 植被
 
@@ -1427,6 +1451,7 @@ func _build_decor() -> void:
 	_scatter_grass()
 	_scatter_flowers()
 	_scatter_shore()
+	_bind_production_hooks()
 
 ## 把树冠的 StandardMaterial 换成带手绘笔触的材质
 func _apply_foliage(mmi: MultiMeshInstance3D) -> void:
@@ -1806,30 +1831,78 @@ func cancel_build() -> void:
 	if ui != null:
 		ui.set_build_mode("")
 
+func _max_build_slope(d: Dictionary) -> float:
+	if bool(d.get("needs_water", false)):
+		return 2.8
+	if bool(d.get("road", false)):
+		return 2.6
+	if bool(d.get("flat", false)):
+		return 0.42
+	return 0.9
+
+func placement_block_reason(id: String, cell: Vector2i, check_cost := true) -> String:
+	if not BuildingDefs.DEFS.has(id):
+		return "未知建筑类型"
+	var d: Dictionary = BuildingDefs.DEFS[id]
+	var size: Vector2i = d["size"]
+	for x in size.x:
+		for y in size.y:
+			var c := cell + Vector2i(x, y)
+			if not grid.in_bounds(c):
+				return "超出地图边界"
+			if grid.border_cells.has(c):
+				return "不能建在地图边缘"
+			if grid.water_cells.has(c):
+				return "不能建在水面上"
+			if grid.occupied.has(c):
+				return "该位置已被占用"
+	if grid.slope_in(cell, size) > _max_build_slope(d):
+		if bool(d.get("flat", false)):
+			return "农田需要较为平坦的土地（坡度过大）"
+		return "坡度过陡，无法建造"
+	if bool(d.get("needs_water", false)) and not _near_water(cell, size):
+		return "渔码头必须紧邻水域"
+	if check_cost and not GameState.can_afford(d["cost"]):
+		return "资源不足"
+	return ""
+
+func find_build_cell(id: String, center: Vector2i, radius := 28) -> Vector2i:
+	if not BuildingDefs.DEFS.has(id):
+		return Vector2i(-1, -1)
+	var d: Dictionary = BuildingDefs.DEFS[id]
+	var size: Vector2i = d["size"]
+	var cell := _spiral_build_cell(id, size, center, radius)
+	if cell.x >= 0:
+		return cell
+	if bool(d.get("needs_water", false)):
+		for wc in grid.water_cells:
+			cell = _spiral_build_cell(id, size, wc, mini(radius, 10))
+			if cell.x >= 0:
+				return cell
+	return Vector2i(-1, -1)
+
+func _spiral_build_cell(id: String, size: Vector2i, center: Vector2i, radius: int) -> Vector2i:
+	for r in radius + 1:
+		for dx in range(-r, r + 1):
+			for dy in range(-r, r + 1):
+				if maxi(absi(dx), absi(dy)) != r and r > 0:
+					continue
+				var cell := center + Vector2i(dx, dy) - Vector2i(size.x / 2, size.y / 2)
+				if placement_block_reason(id, cell, false) == "":
+					return cell
+	return Vector2i(-1, -1)
+
 func place_building(id: String, cell: Vector2i, free := false, force_complete := false) -> Building:
 	if not BuildingDefs.DEFS.has(id):
 		return null
 	var d: Dictionary = BuildingDefs.DEFS[id]
 	var size: Vector2i = d["size"]
-	var needs_water := bool(d.get("needs_water", false))
-	var is_road_def := bool(d.get("road", false))
+	var block := placement_block_reason(id, cell, not free)
+	if block != "":
+		return null
 	# 所有建筑都会清掉占地内的树，先清再判定占位（否则林地里什么都建不了）
 	_clear_trees(cell, size)
-	if not grid.footprint_free(cell, size):
-		return null
-	# 码头建在岸坡上、道路要能爬山，容许更大高差
-	var max_slope := 1.2
-	if needs_water:
-		max_slope = 2.8
-	elif is_road_def:
-		max_slope = 2.6
-	if grid.slope_in(cell, size) > max_slope:
-		return null
-	if needs_water and not _near_water(cell, size):
-		return null
 	if not free:
-		if not GameState.can_afford(d["cost"]):
-			return null
 		GameState.pay(d["cost"])
 
 	_clear_trees(cell, size)
@@ -1847,7 +1920,7 @@ func place_building(id: String, cell: Vector2i, free := false, force_complete :=
 		grid.set_road(cell, true)
 		_set_road_mask(cell, true)
 	else:
-		grid.set_solid(cell, size, true)
+		grid.sync_building_block(b)
 
 	GameState.buildings.append(b)
 	_rebuild_dirt_mask()
@@ -1874,6 +1947,8 @@ func upgrade_building(b: Building) -> void:
 	b.begin_upgrade()
 	GameState.log_msg("%s 开始升级为 %s" % [old_name, str(nd.get("name", next))])
 	_assign_jobs()
+	if selected == b and ui != null:
+		ui.show_building(b)
 
 ## 中央广场：以村镇中心为圆心画一块石板铺装
 const PLAZA_CELL := Vector2i(31, 31)
@@ -1985,6 +2060,8 @@ func _on_building_completed(b: Building) -> void:
 	_assign_jobs()
 	spawn_context_prop(b)
 	_paint_door_path(b)
+	if selected == b and ui != null:
+		ui.show_building(b)
 
 func demolish(b: Building, refund := true) -> void:
 	if b == null or not is_instance_valid(b):
@@ -1992,9 +2069,13 @@ func demolish(b: Building, refund := true) -> void:
 	for c in b.workers.duplicate():
 		if is_instance_valid(c):
 			c.workplace = null
+			if c.state == Citizen.St.WORK or c.state == Citizen.St.TO_WORK:
+				c._set_state(Citizen.St.IDLE)
 	for c in b.builders.duplicate():
 		if is_instance_valid(c):
 			c.site = null
+			if c.state == Citizen.St.BUILD or c.state == Citizen.St.TO_BUILD:
+				c._set_state(Citizen.St.IDLE)
 	b.workers.clear()
 	b.builders.clear()
 
@@ -2022,6 +2103,10 @@ func demolish(b: Building, refund := true) -> void:
 func _try_place() -> void:
 	var cell: Vector2i = ghost_root.get_meta("cell", Vector2i(-1, -1))
 	if cell.x < 0:
+		return
+	var reason := placement_block_reason(build_mode, cell, true)
+	if reason != "":
+		GameState.log_msg("无法在此建造：%s" % reason)
 		return
 	var b := place_building(build_mode, cell)
 	if b != null:
@@ -2059,28 +2144,164 @@ func select(b: Building) -> void:
 
 # ---------------------------------------------------------------- 居民
 
-func spawn_citizen(pos: Vector3) -> Citizen:
+func spawn_citizen(pos: Vector3, age_days: int = -1) -> Citizen:
 	var c := Citizen.new()
 	citizens_root.add_child(c)
 	var gy := grid.height_at_world(pos.x, pos.z)
 	c.global_position = Vector3(pos.x, gy, pos.z)
 	c.setup()
+	if age_days >= 0:
+		c.age = age_days
+	else:
+		c.age = rng.randi_range(GameState.adult_age_days(), 45 * GameState.DAYS_PER_YEAR)
 	c.died.connect(_on_citizen_died)
 	GameState.citizens.append(c)
 	return c
 
 func _on_citizen_died(c: Citizen) -> void:
+	for b in GameState.buildings:
+		if is_instance_valid(b):
+			b.remove_worker(c)
+			b.remove_builder(c)
+	GameState.note_citizen_death()
+	_spawn_tombstone(c)
 	GameState.citizens.erase(c)
-	GameState.log_msg("一名居民死去了。")
+	GameState.log_msg("一名居民死去了。（累计 %d）" % GameState.dead_count)
 	c.queue_free()
+
+func _spawn_tombstone(c: Citizen) -> void:
+	var anchor := c.global_position
+	var church: Building = null
+	for b in GameState.buildings:
+		if is_instance_valid(b) and b.complete and bool(b.def.get("church", false)):
+			church = b
+			break
+	if church != null:
+		var idx := maxi(0, GameState.dead_count - 1)
+		var row := idx / 4
+		var col := idx % 4
+		anchor = church.global_position + Vector3((float(col) - 1.5) * 1.15, 0.0, 4.0 + float(row) * 1.05)
+	elif c.home != null and is_instance_valid(c.home):
+		anchor = c.home.global_position + Vector3(randf_range(-1.4, 1.4), 0.0, randf_range(2.0, 3.6))
+	var pos := grid.nearest_free_point(anchor)
+	var stone := Node3D.new()
+	var slab := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.52, 0.72, 0.14)
+	slab.mesh = bm
+	slab.position.y = 0.36
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.58, 0.60, 0.64)
+	mat.roughness = 0.9
+	slab.material_override = mat
+	stone.add_child(slab)
+	var mark := Label3D.new()
+	mark.text = "墓"
+	mark.font = GameState.ui_font
+	mark.font_size = 40
+	mark.pixel_size = 0.007
+	mark.outline_size = 10
+	mark.outline_modulate = Color(0, 0, 0, 0.82)
+	mark.modulate = Color(0.78, 0.80, 0.84)
+	mark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	mark.position = Vector3(0, 0.82, 0.09)
+	stone.add_child(mark)
+	props_root.add_child(stone)
+	stone.position = Vector3(pos.x, grid.height_at_world(pos.x, pos.z), pos.z)
+	stone.rotation.y = randf() * TAU
+
+func _reconcile_assignments() -> void:
+	for c in GameState.citizens:
+		if not is_instance_valid(c) or c.dead:
+			continue
+		if c.sick > 0:
+			if c.workplace != null and is_instance_valid(c.workplace):
+				c.workplace.remove_worker(c)
+			elif c.workplace != null:
+				c.workplace = null
+			if c.site != null and is_instance_valid(c.site):
+				c.site.remove_builder(c)
+			elif c.site != null:
+				c.site = null
+			if c.state in [Citizen.St.BUILD, Citizen.St.TO_BUILD, Citizen.St.WORK, Citizen.St.TO_WORK]:
+				c._set_state(Citizen.St.IDLE)
+		if c.workplace != null:
+			var wp: Building = c.workplace
+			if not is_instance_valid(wp):
+				c.workplace = null
+			elif not wp.workers.has(c):
+				if wp.lock_workers:
+					wp.add_worker(c)
+				else:
+					c.workplace = null
+		if c.site != null:
+			if not is_instance_valid(c.site) or c.site.complete or not c.site.builders.has(c):
+				c.site = null
+				if c.state == Citizen.St.BUILD or c.state == Citizen.St.TO_BUILD:
+					c._set_state(Citizen.St.IDLE)
+		c.ensure_home()
 
 func _find_idle() -> Citizen:
 	for c in GameState.citizens:
-		if is_instance_valid(c) and not c.dead and c.workplace == null and c.site == null:
-			return c
+		if not is_instance_valid(c) or c.dead:
+			continue
+		if c.workplace != null or c.site != null:
+			continue
+		if c.sick > 0:
+			continue
+		if c.state != Citizen.St.IDLE:
+			continue
+		return c
 	return null
 
+func _buildings_needing_workers() -> Array:
+	var list: Array = []
+	for b in GameState.buildings:
+		if not is_instance_valid(b) or b.slots() <= 0:
+			continue
+		if b.workers.size() >= b.slots():
+			continue
+		list.append(b)
+	list.sort_custom(func(a: Building, bb: Building) -> bool:
+		if a.job_priority != bb.job_priority:
+			return a.job_priority and not bb.job_priority
+		return false
+	)
+	return list
+
+func prioritize_building(b: Building) -> void:
+	if b == null or not is_instance_valid(b) or not b.complete or b.slots() <= 0:
+		return
+	b.job_priority = true
+	var added := 0
+	while b.workers.size() < b.slots():
+		var c := _find_idle()
+		if c == null:
+			break
+		b.add_worker(c)
+		c._set_state(Citizen.St.IDLE)
+		added += 1
+	var nm := str(b.def.get("name", b.def_id))
+	if added > 0:
+		GameState.log_msg("%s 已优先指派 %d 名工人。" % [nm, added])
+	elif b.workers.size() >= b.slots():
+		GameState.log_msg("%s 岗位已满。" % nm)
+	else:
+		GameState.log_msg("暂无空闲居民可指派。")
+	if selected == b and ui != null:
+		ui.show_building(b)
+
+func set_building_lock_workers(b: Building, locked: bool) -> void:
+	if b == null or not is_instance_valid(b):
+		return
+	b.lock_workers = locked
+	if locked:
+		for w in b.workers:
+			if is_instance_valid(w) and w.workplace != b:
+				w.workplace = b
+
 func _assign_jobs() -> void:
+	_reconcile_assignments()
 	# 工地优先：空闲居民先去盖房子
 	for b in GameState.buildings:
 		if not is_instance_valid(b) or b.complete:
@@ -2090,33 +2311,71 @@ func _assign_jobs() -> void:
 			if cb == null:
 				break
 			b.add_builder(cb)
-			cb.site = b
 			cb._set_state(Citizen.St.IDLE)
-	# 剩下的去生产岗位
-	for b in GameState.buildings:
-		if not is_instance_valid(b):
-			continue
-		if b.slots() <= 0:
-			continue
+	# 生产/服务岗位：优先标记的建筑先补员
+	for b in _buildings_needing_workers():
 		while b.workers.size() < b.slots():
 			var c := _find_idle()
 			if c == null:
 				return
 			b.add_worker(c)
 			c._set_state(Citizen.St.IDLE)
+	for b in GameState.buildings:
+		if not is_instance_valid(b) or not b.lock_workers:
+			continue
+		for w in b.workers:
+			if is_instance_valid(w) and w.workplace != b:
+				w.workplace = b
 
 func _try_growth() -> void:
-	if GameState.citizens.size() >= GameState.home_capacity():
+	if GameState.free_homes() <= 0:
 		return
-	if float(GameState.stock.get("food", 0.0)) < 100.0:
+	if GameState.happiness < 45.0:
 		return
-	if rng.randf() > 0.4:
+	var pop := GameState.citizens.size()
+	if float(GameState.stock.get("food", 0.0)) < 80.0 + pop * 2.5:
 		return
-	var house := _random_house()
+	if rng.randf() > 0.38:
+		return
+	var house := _house_with_free_slot()
 	if house == null:
 		return
-	spawn_citizen(house.global_position + Vector3(rng.randf_range(-2, 2), 0.0, rng.randf_range(-2, 2)))
-	GameState.log_msg("一名新生儿降生。")
+	var c := spawn_citizen(
+		house.global_position + Vector3(rng.randf_range(-2, 2), 0.0, rng.randf_range(-2, 2)), 0)
+	c.home = house
+	GameState.log_msg("一名新生儿降生（幸福 %.0f，空房 %d）。" % [GameState.happiness, GameState.free_homes()])
+
+func _spawn_refugees() -> void:
+	var n := GameEvents.try_refugees(rng)
+	if n <= 0:
+		return
+	var added := 0
+	for _i in n:
+		if GameState.free_homes() <= 0:
+			break
+		var house := _house_with_free_slot()
+		if house == null:
+			break
+		var c := spawn_citizen(house.global_position + Vector3(rng.randf_range(-2, 2), 0.0, rng.randf_range(-2, 2)))
+		c.home = house
+		added += 1
+	if added > 0:
+		GameState.log_msg("春季有 %d 名难民前来投奔（空房与口粮尚可）。" % added)
+
+func _house_with_free_slot() -> Building:
+	for b in GameState.buildings:
+		if not is_instance_valid(b) or not b.complete:
+			continue
+		var cap := int(b.def.get("homes", 0))
+		if cap <= 0:
+			continue
+		var n := 0
+		for c in GameState.citizens:
+			if is_instance_valid(c) and not c.dead and c.home == b:
+				n += 1
+		if n < cap:
+			return b
+	return null
 
 func _random_house() -> Building:
 	var houses: Array = []
@@ -2206,9 +2465,8 @@ func _update_ghost() -> void:
 	)
 	ghost_root.set_meta("cell", cell)
 
-	var ok: bool = grid.footprint_free(cell, size) \
-		and grid.slope_in(cell, size) <= (2.8 if bool(BuildingDefs.DEFS[build_mode].get("needs_water", false)) else 0.9) \
-		and GameState.can_afford(BuildingDefs.DEFS[build_mode]["cost"])
+	var reason := placement_block_reason(build_mode, cell, true)
+	var ok := reason == ""
 	var mat := ghost_mesh.material_override as StandardMaterial3D
 	if mat != null:
 		mat.albedo_color = Color(0.35, 0.95, 0.45, 0.35) if ok else Color(0.95, 0.30, 0.25, 0.40)
@@ -2276,13 +2534,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				save_game()
 			KEY_F9:
 				load_game()
+			KEY_F8:
+				ui.toggle_event_debug_panel()
 			KEY_F11:
 				var w := get_window()
 				w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
 				var idx := int(event.keycode) - int(KEY_1)
-				if idx >= 0 and idx < BUILD_ORDER.size():
-					start_build(BUILD_ORDER[idx])
+				var quick := BuildingDefs.quick_build_ids()
+				if idx >= 0 and idx < quick.size():
+					start_build(quick[idx])
 
 func _paint_road(screen_pos: Vector2) -> void:
 	var hit = screen_to_ground(screen_pos)
@@ -2321,60 +2582,18 @@ func _on_log(text: String) -> void:
 
 func _on_day(_d: int) -> void:
 	_try_growth()
+	_spawn_refugees()
 	_tick_sites()
 	_try_disaster()
 	_tick_fires()
 	_tick_trade()
 	_tick_happiness()
 
-## 幸福度：有伙计的酒馆每天提升，否则缓慢下降
 func _tick_happiness() -> void:
-	var has_tavern := false
-	for b in GameState.buildings:
-		if is_instance_valid(b) and b.complete and b.def_id == "tavern" and not b.workers.is_empty():
-			has_tavern = true
-			break
-	var target := 62.0
-	if has_tavern:
-		target = minf(100.0, GameState.happiness + 1.6)
-	else:
-		target = maxf(0.0, GameState.happiness - 0.9)
-	GameState.happiness = move_toward(GameState.happiness, target, 0.8)
-
-## 贸易站：每 6 天用最富余的资源换回最缺的工具/衣物
-func _staffed_trade() -> Building:
-	for b in GameState.buildings:
-		if is_instance_valid(b) and b.complete and bool(b.def.get("trade", false)) and not b.workers.is_empty():
-			return b
-	return null
+	GameState.tick_happiness()
 
 func _tick_trade() -> void:
-	if GameState.total_days() % 6 != 0:
-		return
-	if _staffed_trade() == null:
-		return
-	var sell := ""
-	var best := 60.0
-	for r in ["wood", "stone", "food", "firewood", "leather"]:
-		var amt := float(GameState.stock.get(r, 0.0))
-		if amt > best:
-			best = amt
-			sell = r
-	if sell == "":
-		return
-	var buy := "tools"
-	if float(GameState.stock.get("tools", 0.0)) > float(GameState.stock.get("clothes", 0.0)):
-		buy = "clothes"
-	var amount := 20.0
-	if not GameState.take(sell, amount):
-		return
-	GameState.add(buy, amount * 0.25)
-	GameState.log_msg("贸易站：卖出 %d %s，换回 %.0f %s" % [
-		int(amount), _res_name(sell), amount * 0.25, _res_name(buy)])
-
-func _res_name(r: String) -> String:
-	return str({"wood": "木材", "stone": "石头", "food": "食物", "firewood": "柴火",
-		"tools": "工具", "clothes": "衣物", "leather": "皮革"}.get(r, r))
+	GameState.tick_trade()
 
 ## 没有空闲工人时，工地也有一点点自发进度，避免完全卡死
 func _tick_sites() -> void:
@@ -2383,50 +2602,10 @@ func _tick_sites() -> void:
 			b.add_progress(0.25)
 
 func _try_disaster() -> void:
-	if GameState.buildings.size() < 3:
-		return
-	var s := GameState.season()
-	var fire_chance := 0.008 if (s == 1 or s == 2) else 0.002
-	if rng.randf() < fire_chance:
-		_ignite_random()
-	elif rng.randf() < 0.009:
-		_outbreak()
+	GameEvents.try_daily(rng)
 
 func _well_near(b: Building) -> bool:
-	for other in GameState.buildings:
-		if not is_instance_valid(other) or not other.complete or not other.is_well():
-			continue
-		if other.global_position.distance_to(b.global_position) <= other.well_radius():
-			return true
-	return false
-
-func _ignite_random() -> void:
-	var candidates: Array = []
-	for b in GameState.buildings:
-		if is_instance_valid(b) and b.complete and not b.is_road():
-			candidates.append(b)
-	if candidates.is_empty():
-		return
-	var b: Building = candidates[rng.randi_range(0, candidates.size() - 1)]
-	# 水井覆盖范围内，大概率根本烧不起来
-	if _well_near(b) and rng.randf() < 0.65:
-		return
-	b.ignite()
-
-func _outbreak() -> void:
-	if GameState.citizens.is_empty():
-		return
-	var n := mini(4, maxi(2, GameState.citizens.size() / 6))
-	var pool := GameState.citizens.duplicate()
-	for i in n:
-		if pool.is_empty():
-			break
-		var idx := rng.randi_range(0, pool.size() - 1)
-		var c = pool[idx]
-		pool.remove_at(idx)
-		if is_instance_valid(c) and not c.dead:
-			c.infect(rng.randi_range(3, 5))
-	GameState.log_msg("瘟疫爆发！有居民病倒了。")
+	return Building.covered_by_well(b)
 
 func _tick_fires() -> void:
 	for b in GameState.buildings.duplicate():
@@ -2438,10 +2617,10 @@ func _tick_fires() -> void:
 			for other in _nearby_buildings(b, 3.5):
 				if other == b or other.burning or not other.complete or other.is_road():
 					continue
-				if rng.randf() < (0.05 if helped else 0.16):
+				if rng.randf() < (Building.WELL_FIRE_SPREAD if helped else Building.FIRE_SPREAD):
 					other.ignite()
 		# 有可能自行熄灭，附近有水井时概率大幅提高
-		if b.burn_timer >= 2.0 and rng.randf() < (0.75 if helped else 0.35):
+		if b.burn_timer >= 2.0 and rng.randf() < (Building.WELL_EXTINGUISH if helped else 0.35):
 			GameState.log_msg("%s 的火被扑灭了" % str(b.def.get("name", b.def_id)))
 			b.extinguish()
 			continue
@@ -2476,9 +2655,10 @@ func _on_season(s: int) -> void:
 		flower_mm.visible = s != 3
 	_apply_tree_season(s)
 	match s:
-		0: GameState.log_msg("春天来了，抓紧囤粮。")
+		0: GameState.log_msg("春天来了，抓紧囤粮与工具。")
+		1: GameState.log_msg("盛夏来临，野外生产约 +5%。")
 		2: GameState.log_msg("秋收季节，农田产量最高。")
-		3: GameState.log_msg("冬季来临，检查柴火储备！")
+		3: GameState.log_msg("冬季来临，检查柴火与衣物储备！")
 
 ## 树冠随季节换色：秋天阔叶与白桦转黄橙，松树保持常绿
 func _apply_tree_season(s: int) -> void:
@@ -2527,34 +2707,57 @@ const SAVE_PATH := "user://save.json"
 
 func save_game() -> void:
 	var data := {
-		"version": 1,
+		"version": 2,
 		"t": GameState.t,
 		"stock": GameState.stock,
 		"happiness": GameState.happiness,
+		"trade_manual_day": GameState.trade_manual_day,
+		"cold_snap_days": GameState.cold_snap_days,
+		"random_events_enabled": GameState.random_events_enabled,
+		"event_weights": GameState.event_weights,
+		"dead_count": GameState.dead_count,
 		"buildings": [],
 		"citizens": [],
 	}
 	for b in GameState.buildings:
 		if not is_instance_valid(b):
 			continue
+		var worker_ids: Array = []
+		for w in b.workers:
+			if is_instance_valid(w):
+				worker_ids.append(GameState.citizens.find(w))
+		var builder_ids: Array = []
+		for w in b.builders:
+			if is_instance_valid(w):
+				builder_ids.append(GameState.citizens.find(w))
 		data["buildings"].append({
 			"id": b.def_id,
 			"cell": [b.cell.x, b.cell.y],
 			"complete": b.complete,
 			"progress": b.progress,
+			"produced": b.produced,
+			"burning": b.burning,
+			"burn_timer": b.burn_timer,
+			"lock_workers": b.lock_workers,
+			"job_priority": b.job_priority,
+			"worker_ids": worker_ids,
+			"builder_ids": builder_ids,
 		})
 	for c in GameState.citizens:
 		if not is_instance_valid(c) or c.dead:
 			continue
 		data["citizens"].append({
 			"pos": [c.global_position.x, c.global_position.z],
+			"age": c.age,
 			"hunger": c.hunger,
 			"warmth": c.warmth,
 			"health": c.health,
+			"sick": c.sick,
 			"carry": c.carry,
 			"carry_res": c.carry_res,
 			"home": GameState.buildings.find(c.home),
 			"work": GameState.buildings.find(c.workplace),
+			"site": GameState.buildings.find(c.site),
 		})
 
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -2607,6 +2810,9 @@ func load_game() -> void:
 		GameState.stock[k] = float(data["stock"][k])
 	GameState.t = float(data.get("t", 0.0))
 	GameState.happiness = float(data.get("happiness", 62.0))
+	GameState.trade_manual_day = int(data.get("trade_manual_day", -1))
+	GameState.apply_save_event_fields(data)
+	GameState.dead_count = int(data.get("dead_count", 0))
 
 	var placed: Array = []
 	for bd in data.get("buildings", []):
@@ -2615,32 +2821,68 @@ func load_game() -> void:
 		placed.append(b)
 		if b == null:
 			continue
+		b.produced = float(bd.get("produced", 0.0))
 		if bool(bd.get("complete", true)):
 			b.finish_now()
 		else:
 			b.progress = float(bd.get("progress", 0.0))
 			b.add_progress(0.0)
+		grid.sync_building_block(b)
+		if bool(bd.get("burning", false)) and b.complete:
+			b.ignite()
+			b.burn_timer = float(bd.get("burn_timer", 0.0))
+		b.lock_workers = bool(bd.get("lock_workers", false))
+		b.job_priority = bool(bd.get("job_priority", false))
 
 	for cd in data.get("citizens", []):
 		var p: Array = cd["pos"]
 		var c := spawn_citizen(Vector3(float(p[0]), 0.0, float(p[1])))
+		c.age = int(cd.get("age", GameState.adult_age_days()))
 		c.hunger = float(cd.get("hunger", 100.0))
 		c.warmth = float(cd.get("warmth", 100.0))
 		c.health = float(cd.get("health", 100.0))
+		c.sick = int(cd.get("sick", 0))
+		if c.sick > 0:
+			c.infect(c.sick)
 		c.carry = float(cd.get("carry", 0.0))
 		c.carry_res = str(cd.get("carry_res", "wood"))
 		var hi := int(cd.get("home", -1))
 		var wi := int(cd.get("work", -1))
+		var si := int(cd.get("site", -1))
 		if hi >= 0 and hi < placed.size() and is_instance_valid(placed[hi]) and placed[hi].complete:
 			c.home = placed[hi]
 		if wi >= 0 and wi < placed.size() and is_instance_valid(placed[wi]) and placed[wi].complete:
 			placed[wi].add_worker(c)
+		if si >= 0 and si < placed.size() and is_instance_valid(placed[si]) and not placed[si].complete:
+			c.site = placed[si]
+			placed[si].add_builder(c)
 
+	_relocate_citizens_after_load()
 	_assign_jobs()
 	select(null)
 	_rebuild_road_mask()
 	_rebuild_dirt_mask()
 	GameState.log_msg("读档完成")
+
+func _relocate_citizens_after_load() -> void:
+	for c in GameState.citizens:
+		if not is_instance_valid(c) or c.dead:
+			continue
+		c.path.clear()
+		c.path_i = 0
+		c.arrived = true
+		c.state = Citizen.St.IDLE
+		c.state_timer = 0.0
+		var cell := grid.world_to_cell(c.global_position)
+		if grid.astar.is_point_solid(cell):
+			var n := grid.nearest_free_cell(cell)
+			if n.x >= 0:
+				c.global_position = grid.cell_center(n)
+			else:
+				c.global_position = grid.nearest_free_point(c.global_position)
+		else:
+			c.global_position.y = grid.height_at_world(c.global_position.x, c.global_position.z)
+	_reconcile_assignments()
 
 # ---------------------------------------------------------------- 调试入口
 
@@ -2649,21 +2891,20 @@ func _handle_cmdline() -> void:
 	if "--autotest" in args:
 		GameState.speed = 8.0
 		GameState.verbose = true
+		GameState.random_events_enabled = false
 		GameState.log_msg("自动测试开始。")
 		var plan := [
-			["woodcutter", Vector2i(24, 28)],
-			["gatherer", Vector2i(36, 28)],
-			["gatherer", Vector2i(36, 32)],
-			["firewood", Vector2i(31, 26)],
-			["farm", Vector2i(20, 34)],
-			["hunter", Vector2i(25, 24)],
-			["house", Vector2i(38, 36)],
-			["house", Vector2i(40, 30)],
+			"woodcutter", "gatherer", "gatherer", "hunter", "firewood", "farm", "house", "house",
 		]
-		for item in plan:
-			var b: Building = place_building(str(item[0]), item[1])
+		var autoplay_center := Vector2i(31, 31)
+		for id in plan:
+			var cell := find_build_cell(id, autoplay_center)
+			if cell.x < 0:
+				print("AUTOPLAY 建造失败: ", id, " | 找不到合适空地")
+				continue
+			var b: Building = place_building(id, cell, true, true)
 			if b == null:
-				print("AUTOPLAY 建造失败: ", item[0], " @", item[1])
+				print("AUTOPLAY 建造失败: ", id, " @", cell, " | ", placement_block_reason(id, cell, false))
 		for i in range(1, 9):
 			await get_tree().create_timer(10.0).timeout
 			_print_stats(i)
@@ -2672,6 +2913,9 @@ func _handle_cmdline() -> void:
 	elif "--savetest" in args:
 		GameState.speed = 4.0
 		GameState.verbose = true
+		GameState.random_events_enabled = false
+		GameState.event_weights["fire"] = 0.35
+		GameState.cold_snap_days = 2
 		place_building("woodcutter", Vector2i(24, 28), true, true)
 		place_building("house", Vector2i(43, 30), true, false)
 		for i in 3:
@@ -2685,8 +2929,11 @@ func _handle_cmdline() -> void:
 		print("SAVETEST 清空后: ", _snapshot())
 		load_game()
 		await get_tree().create_timer(1.0).timeout
+		var ev_before := _event_snapshot()
 		print("SAVETEST before=", before)
 		print("SAVETEST after =", _snapshot())
+		print("SAVETEST events before=", ev_before)
+		print("SAVETEST events after =", _event_snapshot())
 		get_tree().quit()
 	elif "--distest" in args:
 		GameState.speed = 8.0
@@ -2989,9 +3236,11 @@ func _build_demo_town() -> void:
 		["gatherer", Vector2i(36, 28)],
 		["hunter", Vector2i(24, 24)],
 		["firewood", Vector2i(31, 26)],
-		["farm", Vector2i(20, 34)],
+		["farm", Vector2i(22, 36)],
 		["quarry", Vector2i(38, 24)],
 		["well", Vector2i(26, 36)],
+		["well", Vector2i(29, 32)],
+		["well", Vector2i(57, 66)],
 		["hospital", Vector2i(37, 34)],
 		["tailor", Vector2i(26, 24)],
 		["blacksmith", Vector2i(30, 24)],
@@ -3003,6 +3252,17 @@ func _build_demo_town() -> void:
 		["dock", Vector2i(18, 29)],
 		["house_row", Vector2i(25, 33)],
 		["house_row", Vector2i(27, 33)],
+		["house_row", Vector2i(29, 38)],
+		["house", Vector2i(32, 36)],
+		["house", Vector2i(38, 38)],
+		["house", Vector2i(36, 35)],
+		["storage", Vector2i(35, 38)],
+		["house", Vector2i(55, 64)],
+		["house", Vector2i(59, 68)],
+		["house", Vector2i(63, 72)],
+		["house_row", Vector2i(67, 64)],
+		["storage", Vector2i(52, 70)],
+		["well", Vector2i(61, 60)],
 		["carpenter", Vector2i(33, 33)],
 	]
 	for item in layout:
@@ -3012,6 +3272,18 @@ func _build_demo_town() -> void:
 		place_building("road", Vector2i(x, 32), true, true)
 	for y in range(24, 38):
 		place_building("road", Vector2i(30, y), true, true)
+	# 码头→主路（河湖侧）
+	for y in range(29, 33):
+		place_building("road", Vector2i(21, y), true, true)
+	for x in range(22, 27):
+		place_building("road", Vector2i(x, 32), true, true)
+	# 内城街网（围栏内主聚落）
+	for x in range(54, 71):
+		place_building("road", Vector2i(x, 64), true, true)
+	for y in range(58, 74):
+		place_building("road", Vector2i(60, y), true, true)
+	for x in range(52, 63):
+		place_building("road", Vector2i(x, 72), true, true)
 	# 通往山坡的小路
 	for x in range(18, 26):
 		place_building("road", Vector2i(x, 42), true, true)
@@ -3029,11 +3301,12 @@ func _build_demo_town() -> void:
 			b.finish_now()
 			b.begin_upgrade()
 			b.finish_now()
-	for i in 6:
-		var a := TAU * float(i) / 6.0
-		spawn_citizen(Vector3(62.0 + cos(a) * 6.0, 0.0, 66.0 + sin(a) * 5.0))
-	camera.size = 46.0
-	camera_rig.position = Vector3(60.0, 0.0, 62.0)
+	for i in 8:
+		var a := TAU * float(i) / 8.0
+		spawn_citizen(Vector3(60.0 + cos(a) * 7.0, 0.0, 66.0 + sin(a) * 6.0))
+	# 默认截图取景：西侧河道 + 中南主聚落（对齐概念图 v3 构图）
+	camera.size = 38.0
+	camera_rig.position = Vector3(54.0, 0.0, 66.0)
 	_update_label_scale()
 	_scatter_props()
 	_scatter_far_forest()
@@ -3063,13 +3336,16 @@ func _build_demo_town() -> void:
 	_paint_road_line(Vector2(72.0, 56.0), Vector2(72.0, 70.0))
 	_paint_road_line(Vector2(44.0, 72.0), Vector2(57.0, 82.0))
 	_paint_road_line(Vector2(57.0, 82.0), Vector2(66.0, 88.0))
+	_paint_road_line(Vector2(28.0, 58.0), Vector2(30.0, 64.0))
+	_paint_road_line(Vector2(54.0, 64.0), Vector2(60.0, 52.0))
+	_paint_road_line(Vector2(68.0, 64.0), Vector2(72.0, 56.0))
 	_spawn_all_context_props()
 
 func _setup_winter_scene() -> void:
 	place_building("woodcutter", Vector2i(24, 28), true, true)
 	place_building("gatherer", Vector2i(36, 28), true, true)
 	place_building("firewood", Vector2i(31, 26), true, true)
-	place_building("farm", Vector2i(20, 34), true, true)
+	place_building("farm", Vector2i(22, 36), true, true)
 	place_building("hunter", Vector2i(25, 24), true, true)
 	GameState.t = 3.0 * float(GameState.DAYS_PER_SEASON) * GameState.DAY_SECONDS \
 		+ 1.5 * GameState.DAY_SECONDS
@@ -3091,6 +3367,38 @@ func _selftest() -> void:
 		demolish(b)
 		print("  拆除后格子释放: ", not grid.occupied.has(cell), " | 面板隐藏: ", not ui.sel_panel.visible)
 	print("  屏幕中心射线落点: ", screen_to_ground(Vector2(800, 450)))
+	print("  贸易 API: until=%d manual=%s" % [
+		GameState.trade_days_until_auto(), GameState.can_manual_trade()])
+	var inland := Vector2i(45, 45)
+	var dock_inland := placement_block_reason("dock", inland, false)
+	var school_inland := placement_block_reason("school", inland, false)
+	print("  放置 dock内陆: ", dock_inland)
+	print("  放置 school内陆: ", "OK" if school_inland == "" else school_inland)
+	var dock_cell := find_build_cell("dock", Vector2i(18, 29))
+	print("  放置 dock水边find: ", "OK" if dock_cell.x >= 0 else "FAIL")
+	if dock_cell.x >= 0:
+		print("  放置 dock水边block: ", placement_block_reason("dock", dock_cell, false))
+	var ev_payload := {
+		"random_events_enabled": false,
+		"event_weights": {"fire": 0.42, "plague": 1.0},
+		"cold_snap_days": 3,
+	}
+	GameState.random_events_enabled = true
+	GameState.cold_snap_days = 0
+	GameState.event_weights = GameEvents.WEIGHT_DEFAULTS.duplicate()
+	GameState.apply_save_event_fields(ev_payload)
+	var ev_ok := not GameState.random_events_enabled \
+		and GameState.cold_snap_days == 3 \
+		and is_equal_approx(float(GameState.event_weights["fire"]), 0.42) \
+		and is_equal_approx(float(GameState.event_weights["plague"]), 1.0)
+	print("  存档 v2 事件字段: ", "OK" if ev_ok else "FAIL")
+
+func _event_snapshot() -> String:
+	return "ev=%s fire=%.2f cold=%d" % [
+		str(GameState.random_events_enabled).to_lower(),
+		float(GameState.event_weights.get("fire", 1.0)),
+		GameState.cold_snap_days,
+	]
 
 func _snapshot() -> String:
 	return "pop=%d bld=%d wood=%d food=%d fire=%d day=%d" % [

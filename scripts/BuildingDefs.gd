@@ -54,10 +54,11 @@ const _BUILTIN: Dictionary = {
 		"homes": 0,
 		"build_work": 12.0,
 		"produce": {"res": "stone", "rate": 0.7},
+		"seasonal": [1.0, 1.0, 1.0, 0.45],
 		"color": Color(0.56, 0.56, 0.58),
 		"roof": Color(0.35, 0.35, 0.38),
 		"height": 2.2,
-		"desc": "开采石料。",
+		"desc": "开采周边石矿。冬季效率降低，矿脉采尽后停产。",
 	},
 	"gatherer": {
 		"name": "采集小屋",
@@ -110,7 +111,7 @@ const _BUILTIN: Dictionary = {
 		"slots": 1,
 		"homes": 0,
 		"build_work": 22.0,
-		"produce": {"res": "food", "rate": 2.6},
+		"produce": {"res": "food", "rate": 2.6, "consume": {"food": 1.4}},
 		"seasonal": [0.8, 0.9, 1.4, 0.7],
 		"color": Color(0.60, 0.59, 0.55),
 		"roof": Color(0.42, 0.26, 0.18),
@@ -131,6 +132,23 @@ const _BUILTIN: Dictionary = {
 		"height": 16.0,
 		"label_y": 18.4,
 		"desc": "全村的信仰中心，缓慢改善居民健康。不占用工人。",
+	},
+	"school": {
+		"name": "学堂",
+		"size": Vector2i(3, 3),
+		"cost": {"wood": 60.0, "stone": 40.0},
+		"slots": 0,
+		"homes": 0,
+		"build_work": 28.0,
+		"school": true,
+		"radius": 14.0,
+		"child_work_mult": 0.75,
+		"upkeep": {"wood": 0.4, "food": 0.6},
+		"color": Color(0.72, 0.68, 0.58),
+		"roof": Color(0.32, 0.28, 0.34),
+		"height": 14.0,
+		"label_y": 16.4,
+		"desc": "半径 14 米内学童（未满 16 岁）干活效率 75%（否则 55%）。每日消耗木 0.4、食 0.6 维持开课，资源不足则停课。外观暂用教堂模型。",
 	},
 	"dock": {
 		"name": "渔码头",
@@ -362,6 +380,23 @@ static func _convert(d: Dictionary) -> Dictionary:
 static func get_def(id: String) -> Dictionary:
 	ensure_loaded()
 	return DEFS.get(id, {})
+
+## 建造面板顺序（跳过 upgrade_only），与快捷键 1-9 前九项一致。
+static func menu_build_ids() -> Array[String]:
+	ensure_loaded()
+	var out: Array[String] = []
+	for id in DEFS:
+		if bool(DEFS[id].get("upgrade_only", false)):
+			continue
+		out.append(str(id))
+	return out
+
+static func quick_build_ids(max_n: int = 9) -> Array[String]:
+	var all := menu_build_ids()
+	var out: Array[String] = []
+	for i in mini(max_n, all.size()):
+		out.append(all[i])
+	return out
 
 static func cost_text(id: String) -> String:
 	ensure_loaded()
