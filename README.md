@@ -11,7 +11,7 @@
 **你会体验到：**
 
 - **生存经营**：木材、石材、食物、柴火、工具、衣物、皮革等资源与仓库上限；人口增长与日常消耗。
-- **生产网络**：24 种建筑覆盖采集、种植、狩猎、放牧、加工与服务（含牧场副产皮革、学堂学童效率圈、酒馆幸福）；数值由 `data/buildings.json` 驱动（启动日志「载入 N 条」含升级项键，菜单可建 **24** 种）。
+- **生产网络**：24 种建筑覆盖采集、种植、狩猎、放牧、加工与服务（含牧场羊群经营、学堂学童效率圈、酒馆幸福）；数值由 `data/buildings.json` 驱动（启动日志「载入 N 条」含升级项键，菜单可建 **24** 种）。
 - **时间与气候**：昼夜循环、四季更替（含冬季采暖与地表变化）、动态雨雪天气。
 - **世界感**：河谷、湖泊、海岸、远林与场景道具（市场、码头、喷泉、桥梁等），配合程序化材质与后期调色。
 - **操作与辅助**：等距相机、建造菜单与小地图、F5/F9 存读档、空格暂停与倍速。
@@ -65,11 +65,11 @@
 | 相机 | 等距正交，俯角 44° |
 | 地形 | 64×64 高度场（`ArrayMesh` 位移），中央平台 + 河谷下切 + 湖 + 海岸沙滩 |
 | 地表 | fbm 草色 + 枯草斑块 + 细颗粒 + 道路遮罩 + 裸土遮罩 + 建造网格 |
-| 水体 | 深度遮罩着色 + 菲涅尔天空反射 + 岸边透明 + 泡沫 + 波浪 + 小船 |
+| 水体 | 深度遮罩着色 + 菲涅尔 + 镜像相机平面反射 + 岸边透明 + 泡沫 + 波浪高光 + 小船 |
 | 建筑材质 | 三平面程序化（木纹 / 瓦片 / 石砌 / 灰泥），每栋随机色差 |
-| 植被 | 3 树种 × 双层树冠 × 每棵色差 + 灌木 + 岩石 + 4200 草簇 + 花丛 + 岸线芦苇 |
+| 植被 | 3 树种 × 分层树冠（松树三层塔冠、阔叶多团树冠）× 每棵色差 + 灌木 + 岩石 + 2800 丛多片草 + 花丛 + 岸线芦苇 |
 | 生命 | 居民（随机衣色/身高、Catmull-Rom 平滑寻路）+ 7 鸡 3 狗 |
-| 光照 | 暖色主光 + 冷蓝环境光 + 4 级阴影 + SSAO，冬季增强环境光 |
+| 光照 | 暖色斜照主光 + 暖色环境补光 + 4 级阴影（`shadow_blur` 仍为 0.12）+ 较弱 SSAO，冬季增强环境光 |
 | 后期 | ACES + 景深 + 辉光 + 雾 + 分离色调 + 暗角 + 颗粒（`shaders/grade.gdshader`） |
 | 动态 | 昼夜循环（80 秒一周，黄昏窗户透光）+ 四季（作物/积雪/风车转速）+ 雨雪天气 |
 | UI | 羊皮纸/木牌主题 + 建筑 3D 缩略图 + 可滚动菜单 + 跟随小地图 |
@@ -110,7 +110,7 @@
 | `event_weights` | 事件 id → 权重倍率（缺省或空对象 → `GameEvents.WEIGHT_DEFAULTS`） |
 | `dead_count` | 累计死亡人数（缺省 `0`） |
 | `tombstones[]` | 墓碑世界坐标 `[x, z, rot_y]`（缺省 `[]`；旧档无此键则只恢复 `dead_count`、不重建场景墓碑） |
-| `buildings[]` | `id`、`cell`、`complete`、`progress`、`produced`、`burning`、`burn_timer`、`worker_ids` / `builder_ids`（居民下标）；可选 `lock_workers`、`job_priority` |
+| `buildings[]` | `id`、`cell`、`complete`、`progress`、`produced`、`burning`、`burn_timer`、`worker_ids` / `builder_ids`（居民下标）；可选 `lock_workers`、`job_priority`。牧场且羊群已引进时另有 `herd_count` / `herd_health` / `herd_keep` / `herd_sick`（旧档缺键则完工时按默认引进 6 只、保留 4，不覆盖已有羊群） |
 | `citizens[]` | 平面坐标 `pos`、`age`（游戏日）、`hunger` / `warmth` / `health`、`sick`、`carry` / `carry_res`、`home` / `work` / `site`（建筑下标） |
 
 读档后会重算寻路阻挡、重新分配岗位，并 `_relocate_citizens_after_load` 修正卡在固体格上的居民；事件相关字段经 `GameState.apply_save_event_fields` 恢复（旧档缺键用上表缺省）。
@@ -137,7 +137,7 @@ $e = 'D:\04_Godot\Godot_v4.7.2-stable_win64_console.exe'
 
 | 截图参数 | 效果 |
 |---|---|
-| `--shot --town` | 演示城镇（默认 `--at 54 66 --size 38`；**固定暖色斜照 k≈0.52**，对齐概念 v3 河湖+主聚落） |
+| `--shot --town` | 演示城镇（默认 `--at 54 66 --size 38`；**固定暖色斜照 k≈0.30**，对齐概念 v3 河湖+主聚落） |
 | `--shot --winter --town` | 冬季 |
 | `--shot --town --dusk` | 更晚黄昏（k≈0.74，偏橙；README 用 `shot_dusk.png`） |
 | `--shot --town --rain` | 雨天 |
@@ -149,8 +149,8 @@ $e = 'D:\04_Godot\Godot_v4.7.2-stable_win64_console.exe'
 ## 已知问题
 
 - **建筑坡地贴合**：坡度上限 1.2 米，超过则拒绝建造；石基台基向下延伸 1.1 米盖住缝隙，但极端地形仍可能有轻微穿模。
-- **水面无真实反射**：用深度色 + 菲涅尔近似，没有屏幕空间反射。
-- **阴影柔边受限**：`shadow_blur` 必须保持很低（0.12），否则在正交大视锥下会产生条带。
+- **水面反射是平面近似**：镜像相机照进水面，再按波浪法线轻轻错开；没有屏幕空间反射，陡浪不会映出正确的倒影。
+- **阴影柔边受限**：`shadow_blur` 必须保持很低（0.12），否则在正交大视锥下会产生条带。柔边主要靠略大的 `light_angular_distance`。
 
 ## 自测基线
 
@@ -164,7 +164,21 @@ SAVETEST events before=ev=false fire=0.35 cold=2
 SAVETEST events after =ev=false fire=0.35 cold=2
 ```
 
-说明：`--autotest` 建造计划**全部**经 `find_build_cell` 选址并以免费 instant 完工，不应出现 `AUTOPLAY 建造失败`；`SELFTEST` 校验学堂/码头放置与存档 v2 事件字段内存往返。
+说明：`--autotest` 建造计划**全部**经 `find_build_cell` 选址并以免费 instant 完工，不应出现 `AUTOPLAY 建造失败`；`SELFTEST` 校验学堂/码头放置、存档 v2 事件字段内存往返，以及 `牧场经营: OK`（屠宰、产羔、越冬饿死、疫病、旧档缺 `herd_count` 不覆盖）。自测计划不建牧场，故 `[8]` 经济基线不随羊群规则变化。
+
+## 牧场羊群
+
+牧场不再按工人每天直接产出食物/皮革。建成时引进一群羊，头顶标签显示只数（疫病带「疫」，绝群带「绝」）。选中牧场可调 **保留目标**、**屠宰一只**，羊群绝了可 **引进种羊**。
+
+| 规则 | 行为 |
+|---|---|
+| 繁殖 | 有牧人、未患病、健康足够时：春季第 1 天产羔（羊群 ≥4 产 3 只，否则 1 只），夏季第 1 天再产 1 只。不超过上限 14。 |
+| 屠宰 | 春夏秋，羊群超过保留目标时每天最多屠宰 2 只，约 +16 食物、+3 皮革。也可随时手动屠宰。仓满则暂停。 |
+| 越冬 | 每只每日消耗 0.5 食物，但先留下人均 4 的居民口粮。喂不饱的羊饿死，**没有肉**。 |
+| 疫病 | 冬天、无人照管、羊群 ≥6 且健康 <50 时爆发，持续数日。病死不产肉。 |
+| 绝群 | 花 24 食物重新引进 2 只种羊。没有牧人不会繁殖。 |
+
+地图南缘围栏和羊只仍是演示布景，不参与上述结算。顶栏在已有牧场时显示「羊 N」；缺料、疫病或绝群时预警「羊饿 / 羊疫 / 羊绝」。
 
 ## 目录
 
@@ -172,7 +186,7 @@ SAVETEST events after =ev=false fire=0.35 cold=2
 scripts/     Main.gd（世界/建造/命令）、GameState.gd（资源/时间/贸易/幸福）、GameEvents.gd（随机事件）、
              Building.gd、Citizen.gd、Critter.gd、GridSystem.gd、GameUI.gd、ModelPaint.gd、BuildingDefs.gd
 shaders/     ground / water / surface / grade / smoke / rain
-assets/models/  建筑 glb（学堂暂复用 church）+ 17 个道具 glb + character.glb
+assets/models/  建筑 glb（学堂 `school.glb`、牧场 `pasture.glb` 为独立造型）+ 17 个道具 glb + character.glb
 data/        buildings.json
-tools/       build_assets.py（Blender 生成）、export_defs.gd、concept_render.py 等
+tools/       build_assets.py（Blender 生成）、export_special_glb.py（无 Blender 时只导出学堂/牧场）、export_defs.gd、concept_render.py 等
 ```

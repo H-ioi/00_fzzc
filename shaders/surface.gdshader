@@ -130,8 +130,8 @@ void fragment() {
 	vec2 stroke_uv = vec2(wpos.x * 0.9 + wpos.z * 0.35, wpos.y * 2.2 + wpos.z * 0.8) * 0.55;
 	float stroke = fbm(stroke_uv);
 	col *= mix(0.90, 1.10, stroke);
-	// 轻微色阶量化，模拟颜料块的层次
-	col = floor(col * 26.0) / 26.0;
+	// 轻微色阶，保留颜料块但不要把墙面切成硬色带
+	col = mix(col, floor(col * 32.0) / 32.0, 0.38);
 
 	ALBEDO = col;
 	EMISSION = emission_color.rgb * emission_strength;
@@ -142,5 +142,5 @@ void fragment() {
 	float e = 0.06;
 	float gx = triplanar(wpos + vec3(e, 0.0, 0.0), n, s * 2.5) - v;
 	float gz = triplanar(wpos + vec3(0.0, 0.0, e), n, s * 2.5) - v;
-	NORMAL = normalize(NORMAL + vec3(gx, 0.0, gz) * 0.42);
+	NORMAL = normalize(NORMAL + vec3(gx, 0.0, gz) * 0.22);
 }

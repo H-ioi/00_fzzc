@@ -5,11 +5,11 @@ render_mode unshaded;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 
 uniform float chromatic = 0.0016;
-uniform vec3 shadow_tint : source_color = vec3(0.96, 0.97, 1.04);
-uniform vec3 highlight_tint : source_color = vec3(1.07, 1.02, 0.90);
-uniform float contrast = 1.03;
-uniform float saturation = 1.06;
-uniform float vignette_strength = 0.22;
+uniform vec3 shadow_tint : source_color = vec3(0.94, 0.96, 1.02);
+uniform vec3 highlight_tint : source_color = vec3(1.10, 1.04, 0.88);
+uniform float contrast = 1.04;
+uniform float saturation = 1.12;
+uniform float vignette_strength = 0.16;
 uniform float vignette_inner = 0.68;
 uniform float vignette_outer = 1.18;
 uniform float grain = 0.006;

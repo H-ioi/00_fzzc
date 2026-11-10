@@ -4,6 +4,8 @@ extends Node3D
 const CELL := GridSystem.CELL
 const MAP := 64
 const WATER_LEVEL := 1.15
+## 可见水面在这条高度，和地形上的涉水线 WATER_LEVEL 不是同一个数
+const WATER_SURFACE_Y := -0.55
 var grid: GridSystem
 var terrain_mat: ShaderMaterial
 var water_mat: ShaderMaterial
@@ -36,7 +38,9 @@ var birch_top: MultiMeshInstance3D
 var pine_top: MultiMeshInstance3D
 var broad_top: MultiMeshInstance3D
 var bush_mm: MultiMeshInstance3D
+var bush_mat: ShaderMaterial
 var grass_mm: MultiMeshInstance3D
+var grass_mat: ShaderMaterial
 var flower_mm: MultiMeshInstance3D
 var road_mask_img: Image
 var road_mask_tex: ImageTexture
@@ -81,6 +85,7 @@ func _ready() -> void:
 	_build_environment()
 	_build_camera()
 	_build_water()
+	_build_reflection()
 	_build_rain()
 	_build_snow()
 	_init_road_mask()
@@ -132,30 +137,30 @@ func _build_environment() -> void:
 	var env := Environment.new()
 	var sky := Sky.new()
 	var sm := ProceduralSkyMaterial.new()
-	sm.sky_top_color = Color(0.22, 0.40, 0.70)
-	sm.sky_horizon_color = Color(0.90, 0.78, 0.62)
-	sm.ground_bottom_color = Color(0.10, 0.12, 0.10)
-	sm.ground_horizon_color = Color(0.55, 0.56, 0.48)
+	sm.sky_top_color = Color(0.32, 0.52, 0.80)
+	sm.sky_horizon_color = Color(0.96, 0.84, 0.66)
+	sm.ground_bottom_color = Color(0.12, 0.14, 0.11)
+	sm.ground_horizon_color = Color(0.62, 0.58, 0.46)
 	sky.sky_material = sm
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.58, 0.63, 0.73)
-	env.ambient_light_energy = 0.52
+	env.ambient_light_color = Color(0.70, 0.67, 0.58)
+	env.ambient_light_energy = 0.74
 	env.ambient_light_sky_contribution = 0.0
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.14
+	env.tonemap_exposure = 1.08
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.78, 0.76, 0.72)
-	env.fog_density = 0.00125
-	env.fog_aerial_perspective = 0.32
+	env.fog_light_color = Color(0.84, 0.78, 0.66)
+	env.fog_density = 0.00085
+	env.fog_aerial_perspective = 0.22
 	env.ssao_enabled = true
-	env.ssao_radius = 2.4
-	env.ssao_intensity = 2.8
+	env.ssao_radius = 1.6
+	env.ssao_intensity = 1.45
 	env.glow_enabled = true
-	env.glow_intensity = 0.48
-	env.glow_bloom = 0.14
-	env.glow_hdr_threshold = 0.85
+	env.glow_intensity = 0.36
+	env.glow_bloom = 0.10
+	env.glow_hdr_threshold = 0.92
 	env.adjustment_enabled = false
 	env.adjustment_contrast = 1.0
 	env.adjustment_saturation = 1.0
@@ -163,9 +168,9 @@ func _build_environment() -> void:
 	add_child(we)
 
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-46, -38, 0)
-	sun.light_energy = 2.05
-	sun.light_color = Color(1.0, 0.91, 0.76)
+	sun.rotation_degrees = Vector3(-42, -50, 0)
+	sun.light_energy = 1.75
+	sun.light_color = Color(1.0, 0.90, 0.72)
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 220.0
 	sun.shadow_bias = 0.05
@@ -175,17 +180,18 @@ func _build_environment() -> void:
 	sun.directional_shadow_split_1 = 0.12
 	sun.directional_shadow_split_2 = 0.30
 	sun.directional_shadow_split_3 = 0.62
-	sun.light_angular_distance = 0.4
+	sun.light_angular_distance = 0.85
 	add_child(sun)
 
 ## 平面反射：用一台镜像相机把场景再渲染一次，给水面当反射贴图
 func _build_reflection() -> void:
 	refl_vp = SubViewport.new()
-	refl_vp.size = Vector2i(1280, 720)
+	refl_vp.size = Vector2i(1024, 576)
 	refl_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	refl_vp.msaa_3d = Viewport.MSAA_DISABLED
-	refl_vp.world_3d = get_world_3d()
+	refl_vp.own_world_3d = false
 	add_child(refl_vp)
+	refl_vp.world_3d = get_world_3d()
 
 	refl_cam = Camera3D.new()
 	refl_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -200,9 +206,14 @@ func _build_reflection() -> void:
 func _update_reflection() -> void:
 	if refl_cam == null or camera == null:
 		return
+	var vp := get_viewport().get_visible_rect().size
+	var rw := clampi(int(vp.x), 320, 1280)
+	var rh := clampi(int(vp.y), 180, 720)
+	if refl_vp != null and refl_vp.size != Vector2i(rw, rh):
+		refl_vp.size = Vector2i(rw, rh)
 	var mirror := Transform3D(
 		Basis(Vector3(1, 0, 0), Vector3(0, -1, 0), Vector3(0, 0, 1)),
-		Vector3(0.0, 2.0 * WATER_LEVEL, 0.0)
+		Vector3(0.0, 2.0 * WATER_SURFACE_Y, 0.0)
 	)
 	refl_cam.global_transform = mirror * camera.global_transform
 	refl_cam.size = camera.size
@@ -284,7 +295,7 @@ func _build_water() -> void:
 	pm.subdivide_width = 220
 	pm.subdivide_depth = 220
 	mi.mesh = pm
-	mi.position = Vector3(MAP * CELL * 0.5, -0.55, MAP * CELL * 0.5)
+	mi.position = Vector3(MAP * CELL * 0.5, WATER_SURFACE_Y, MAP * CELL * 0.5)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.material_override = mat
 	mi.layers = 2          # 第 2 层：反射相机不渲染水面自身
@@ -737,15 +748,10 @@ func _scatter_far_forest() -> void:
 	if _far_forest_done:
 		return
 	_far_forest_done = true
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = 1.45
-	cone.height = 4.6
-	cone.radial_segments = 6
-	cone.rings = 1
 	var n := 1500
-	var mm := _make_multimesh(cone, n, Color(0.13, 0.26, 0.14))
+	var mm := _make_multimesh(_stacked_cone_mesh(4.6, 1.45, 7), n, Color(0.16, 0.32, 0.15))
 	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(mm, Color(0.16, 0.32, 0.15))
 	add_child(mm)
 	var mmx := mm.multimesh
 	for i in n:
@@ -763,14 +769,15 @@ func _scatter_far_forest() -> void:
 		mmx.set_instance_transform(i, Transform3D(basis, Vector3(x, h + 2.3 * s, z)))
 
 	# 林缘灌木带：在草地与森林之间做过渡
-	var bm2 := SphereMesh.new()
-	bm2.radius = 0.85
-	bm2.height = 1.15
-	bm2.radial_segments = 6
-	bm2.rings = 3
+	var bm2 := _lobe_mesh([
+		[Vector3(0.0, 0.04, 0.0), 0.78, 0.46, 0.72],
+		[Vector3(-0.32, 0.0, 0.14), 0.46, 0.32, 0.42],
+		[Vector3(0.36, 0.02, -0.10), 0.48, 0.34, 0.44],
+	], 6, 4)
 	var nsh := 950
-	var mms := _make_multimesh(bm2, nsh, Color(0.15, 0.25, 0.12))
+	var mms := _make_multimesh(bm2, nsh, Color(0.20, 0.36, 0.15))
 	mms.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(mms, Color(0.20, 0.36, 0.15))
 	add_child(mms)
 	var msx := mms.multimesh
 	for i in nsh:
@@ -785,14 +792,10 @@ func _scatter_far_forest() -> void:
 		var bs := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(ss, ss * rng.randf_range(0.8, 1.1), ss))
 		msx.set_instance_transform(i, Transform3D(bs, Vector3(xs, hs + 0.32 * ss, zs)))
 	# 远处阔叶林：球形树冠，掺在松林里
-	var ball := SphereMesh.new()
-	ball.radius = 1.55
-	ball.height = 2.6
-	ball.radial_segments = 7
-	ball.rings = 4
 	var nb := 620
-	var mmb := _make_multimesh(ball, nb, Color.WHITE, true)
+	var mmb := _make_multimesh(_broad_canopy_mesh(), nb, Color.WHITE, true)
 	mmb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(mmb)
 	add_child(mmb)
 	var mbx := mmb.multimesh
 	for i in nb:
@@ -1131,15 +1134,10 @@ func _scatter_saplings() -> void:
 	if _sapling_done:
 		return
 	_sapling_done = true
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = 0.9
-	cone.height = 2.4
-	cone.radial_segments = 6
-	cone.rings = 1
 	var n := 1800
-	var mm := _make_multimesh(cone, n, Color.WHITE, true)
+	var mm := _make_multimesh(_stacked_cone_mesh(2.4, 0.9, 7), n, Color.WHITE, true)
 	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(mm)
 	add_child(mm)
 	var mmx := mm.multimesh
 	for i in n:
@@ -1169,15 +1167,10 @@ func _scatter_tall_pines() -> void:
 	if _tall_done:
 		return
 	_tall_done = true
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = 1.15
-	cone.height = 7.6
-	cone.radial_segments = 6
-	cone.rings = 1
 	var n := 620
-	var mm := _make_multimesh(cone, n, Color.WHITE, true)
+	var mm := _make_multimesh(_stacked_cone_mesh(7.6, 1.15, 7), n, Color.WHITE, true)
 	mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(mm)
 	add_child(mm)
 	var mmx := mm.multimesh
 	for i in n:
@@ -1289,14 +1282,39 @@ func _pine_trunk_mesh() -> Mesh:
 	m.rings = 1
 	return m
 
+func _add_cone_band(st: SurfaceTool, y0: float, y1: float, r0: float, r1: float, segments: int) -> void:
+	for i in segments:
+		var a0 := TAU * float(i) / float(segments)
+		var a1 := TAU * float(i + 1) / float(segments)
+		var p00 := Vector3(cos(a0) * r0, y0, sin(a0) * r0)
+		var p10 := Vector3(cos(a1) * r0, y0, sin(a1) * r0)
+		var p01 := Vector3(cos(a0) * r1, y1, sin(a0) * r1)
+		var p11 := Vector3(cos(a1) * r1, y1, sin(a1) * r1)
+		st.add_vertex(p00)
+		st.add_vertex(p10)
+		st.add_vertex(p01)
+		st.add_vertex(p10)
+		st.add_vertex(p11)
+		st.add_vertex(p01)
+
+## 三层重叠的松冠，原点在几何中心，高度和原来的单锥一致，方便沿用摆放
+func _stacked_cone_mesh(total_h: float, base_r: float, segments: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var tiers := [
+		[0.00, 0.48, 1.00, 0.22],
+		[0.32, 0.74, 0.70, 0.12],
+		[0.58, 1.00, 0.40, 0.00],
+	]
+	for tier in tiers:
+		var y0 := -total_h * 0.5 + total_h * float(tier[0])
+		var y1 := -total_h * 0.5 + total_h * float(tier[1])
+		_add_cone_band(st, y0, y1, base_r * float(tier[2]), base_r * float(tier[3]), segments)
+	st.generate_normals()
+	return st.commit()
+
 func _pine_leaf_mesh() -> Mesh:
-	var m := CylinderMesh.new()
-	m.top_radius = 0.0
-	m.bottom_radius = 1.05
-	m.height = 2.9
-	m.radial_segments = 8
-	m.rings = 1
-	return m
+	return _stacked_cone_mesh(2.9, 1.05, 8)
 
 func _broad_trunk_mesh() -> Mesh:
 	var m := CylinderMesh.new()
@@ -1307,13 +1325,51 @@ func _broad_trunk_mesh() -> Mesh:
 	m.rings = 1
 	return m
 
+func _add_ellipsoid(st: SurfaceTool, center: Vector3, rx: float, ry: float, rz: float, seg: int, rings: int) -> void:
+	var rows: Array = []
+	for iy in rings + 1:
+		var phi := PI * float(iy) / float(rings)
+		var row: Array[Vector3] = []
+		for ix in seg:
+			var theta := TAU * float(ix) / float(seg)
+			row.append(center + Vector3(
+				sin(phi) * cos(theta) * rx,
+				cos(phi) * ry,
+				sin(phi) * sin(theta) * rz
+			))
+		rows.append(row)
+	for iy in rings:
+		for ix in seg:
+			var j := (ix + 1) % seg
+			var a: Vector3 = rows[iy][ix]
+			var b: Vector3 = rows[iy][j]
+			var c: Vector3 = rows[iy + 1][ix]
+			var d: Vector3 = rows[iy + 1][j]
+			st.add_vertex(a)
+			st.add_vertex(c)
+			st.add_vertex(b)
+			st.add_vertex(b)
+			st.add_vertex(c)
+			st.add_vertex(d)
+
+## lobes: [center, rx, ry, rz]
+func _lobe_mesh(lobes: Array, seg: int, rings: int) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for lobe in lobes:
+		_add_ellipsoid(st, lobe[0], lobe[1], lobe[2], lobe[3], seg, rings)
+	st.generate_normals()
+	return st.commit()
+
 func _broad_canopy_mesh() -> Mesh:
-	var m := SphereMesh.new()
-	m.radius = 1.25
-	m.height = 2.4
-	m.radial_segments = 8
-	m.rings = 4
-	return m
+	return _lobe_mesh([
+		[Vector3(0.0, 0.05, 0.0), 0.95, 1.05, 0.90],
+		[Vector3(-0.55, 0.15, 0.22), 0.62, 0.55, 0.58],
+		[Vector3(0.60, 0.18, -0.16), 0.64, 0.56, 0.58],
+		[Vector3(0.08, 0.08, 0.55), 0.52, 0.48, 0.55],
+		[Vector3(-0.08, 0.62, 0.02), 0.55, 0.46, 0.50],
+		[Vector3(0.16, -0.05, -0.48), 0.48, 0.46, 0.50],
+	], 8, 5)
 
 func _rock_mesh() -> Mesh:
 	var m := SphereMesh.new()
@@ -1324,21 +1380,40 @@ func _rock_mesh() -> Mesh:
 	return m
 
 func _bush_mesh() -> Mesh:
-	var m := SphereMesh.new()
-	m.radius = 0.50
-	m.height = 0.70
-	m.radial_segments = 6
-	m.rings = 3
-	return m
+	return _lobe_mesh([
+		[Vector3(0.0, 0.04, 0.0), 0.48, 0.32, 0.46],
+		[Vector3(-0.22, 0.0, 0.10), 0.30, 0.22, 0.28],
+		[Vector3(0.24, 0.02, -0.08), 0.28, 0.20, 0.26],
+	], 6, 4)
 
 func _grass_mesh() -> Mesh:
-	var m := CylinderMesh.new()
-	m.top_radius = 0.0
-	m.bottom_radius = 0.17
-	m.height = 0.36
-	m.radial_segments = 4
-	m.rings = 1
-	return m
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in 3:
+		var ang := float(i) * TAU / 3.0
+		var dir := Vector3(cos(ang), 0.0, sin(ang))
+		var side := Vector3(-dir.z, 0.0, dir.x) * 0.08
+		var lean := dir * 0.05
+		var base := Vector3(0.0, -0.18, 0.0)
+		var tip := Vector3(0.0, 0.18, 0.0) + lean
+		var b0 := base - side
+		var b1 := base + side
+		var t0 := tip - side * 0.22
+		var t1 := tip + side * 0.22
+		st.add_vertex(b0)
+		st.add_vertex(b1)
+		st.add_vertex(t1)
+		st.add_vertex(b0)
+		st.add_vertex(t1)
+		st.add_vertex(t0)
+		st.add_vertex(b1)
+		st.add_vertex(b0)
+		st.add_vertex(t0)
+		st.add_vertex(b1)
+		st.add_vertex(t0)
+		st.add_vertex(t1)
+	st.generate_normals()
+	return st.commit()
 
 func _birch_trunk_mesh() -> Mesh:
 	var m := CylinderMesh.new()
@@ -1350,12 +1425,12 @@ func _birch_trunk_mesh() -> Mesh:
 	return m
 
 func _birch_canopy_mesh() -> Mesh:
-	var m := SphereMesh.new()
-	m.radius = 1.00
-	m.height = 2.0
-	m.radial_segments = 7
-	m.rings = 3
-	return m
+	return _lobe_mesh([
+		[Vector3(0.0, 0.08, 0.0), 0.82, 0.98, 0.76],
+		[Vector3(-0.38, 0.18, 0.12), 0.50, 0.46, 0.46],
+		[Vector3(0.40, 0.26, -0.08), 0.48, 0.44, 0.44],
+		[Vector3(0.0, 0.72, 0.0), 0.46, 0.38, 0.42],
+	], 7, 4)
 
 func _make_multimesh(mesh: Mesh, count: int, color: Color, per_instance_color := false) -> MultiMeshInstance3D:
 	var mmi := MultiMeshInstance3D.new()
@@ -1453,14 +1528,15 @@ func _build_decor() -> void:
 	_scatter_shore()
 	_bind_production_hooks()
 
-## 把树冠的 StandardMaterial 换成带手绘笔触的材质
-func _apply_foliage(mmi: MultiMeshInstance3D) -> void:
+## 把树冠的 StandardMaterial 换成带手绘笔触的材质。tint 只在没有实例色时染色。
+func _apply_foliage(mmi: MultiMeshInstance3D, tint: Color = Color.WHITE) -> void:
 	if mmi == null:
 		return
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/foliage.gdshader")
 	if m.shader == null:
 		return
+	m.set_shader_parameter("tint", tint)
 	mmi.material_override = m
 
 func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], birch_cells: Array[Vector2i] = []) -> void:
@@ -1483,7 +1559,7 @@ func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], bi
 			pine_leaf.multimesh.set_instance_transform(i, Transform3D(basis, p + Vector3(0, 3.0 * s, 0)))
 			var top_basis := basis.scaled(Vector3(0.60, 0.55, 0.60))
 			pine_top.multimesh.set_instance_transform(i, Transform3D(top_basis, p + Vector3(0, 3.65 * s, 0)))
-			_apply_tree_colors(pine_leaf, pine_top, i, Color(0.11, 0.23, 0.12))
+			_apply_tree_colors(pine_leaf, pine_top, i, Color(0.16, 0.32, 0.14))
 			grid.astar.set_point_solid(cell, true)
 			pine_lookup[cell] = i
 
@@ -1506,7 +1582,7 @@ func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], bi
 			broad_canopy.multimesh.set_instance_transform(i, Transform3D(basis, p + Vector3(0, 1.95 * s, 0)))
 			var top_basis := basis.scaled(Vector3(0.58, 0.62, 0.58))
 			broad_top.multimesh.set_instance_transform(i, Transform3D(top_basis, p + Vector3(0.14, 2.42 * s, -0.10)))
-			_apply_tree_colors(broad_canopy, broad_top, i, Color(0.20, 0.34, 0.13))
+			_apply_tree_colors(broad_canopy, broad_top, i, Color(0.30, 0.48, 0.16))
 			grid.astar.set_point_solid(cell, true)
 			broad_lookup[cell] = i
 
@@ -1529,7 +1605,7 @@ func _build_forest(pine_cells: Array[Vector2i], broad_cells: Array[Vector2i], bi
 			birch_canopy.multimesh.set_instance_transform(i, Transform3D(basis, p + Vector3(0, 2.9 * s, 0)))
 			var top_basis := basis.scaled(Vector3(0.54, 0.58, 0.54))
 			birch_top.multimesh.set_instance_transform(i, Transform3D(top_basis, p + Vector3(0.10, 3.20 * s, 0.06)))
-			_apply_tree_colors(birch_canopy, birch_top, i, Color(0.27, 0.40, 0.15))
+			_apply_tree_colors(birch_canopy, birch_top, i, Color(0.36, 0.52, 0.18))
 			grid.astar.set_point_solid(cell, true)
 			birch_lookup[cell] = i
 
@@ -1655,7 +1731,9 @@ func _scatter_bushes(used: Dictionary) -> void:
 		list.append(cell)
 	if list.is_empty():
 		return
-	bush_mm = _make_multimesh(_bush_mesh(), list.size(), Color(0.17, 0.29, 0.13))
+	bush_mm = _make_multimesh(_bush_mesh(), list.size(), Color(0.22, 0.38, 0.14))
+	_apply_foliage(bush_mm, Color(0.24, 0.40, 0.16))
+	bush_mat = bush_mm.material_override as ShaderMaterial
 	add_child(bush_mm)
 	for i in list.size():
 		var cell: Vector2i = list[i]
@@ -1665,9 +1743,11 @@ func _scatter_bushes(used: Dictionary) -> void:
 		bush_mm.multimesh.set_instance_transform(i, Transform3D(basis, p + Vector3(0, 0.22 * s, 0)))
 
 func _scatter_grass() -> void:
-	var n := 1700
-	grass_mm = _make_multimesh(_grass_mesh(), n, Color(0.30, 0.45, 0.20))
+	var n := 2800
+	grass_mm = _make_multimesh(_grass_mesh(), n, Color(0.36, 0.52, 0.22))
 	grass_mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_apply_foliage(grass_mm, Color(0.38, 0.54, 0.22))
+	grass_mat = grass_mm.material_override as ShaderMaterial
 	add_child(grass_mm)
 	# 成簇分布，避免均匀撒点像噪点
 	var centers: Array[Vector3] = []
@@ -2406,6 +2486,7 @@ func _random_house() -> Building:
 # ---------------------------------------------------------------- 主循环
 
 func _process(delta: float) -> void:
+	_update_reflection()
 	_camera_input(delta)
 	_update_ghost()
 
@@ -2664,9 +2745,13 @@ func _on_season(s: int) -> void:
 	if s == 3:
 		grass_col = Color(0.72, 0.76, 0.80)
 		bush_col = Color(0.64, 0.68, 0.72)
-	if grass_mm != null and grass_mm.material_override is StandardMaterial3D:
+	if grass_mat != null:
+		grass_mat.set_shader_parameter("tint", grass_col)
+	elif grass_mm != null and grass_mm.material_override is StandardMaterial3D:
 		(grass_mm.material_override as StandardMaterial3D).albedo_color = grass_col
-	if bush_mm != null and bush_mm.material_override is StandardMaterial3D:
+	if bush_mat != null:
+		bush_mat.set_shader_parameter("tint", bush_col)
+	elif bush_mm != null and bush_mm.material_override is StandardMaterial3D:
 		(bush_mm.material_override as StandardMaterial3D).albedo_color = bush_col
 	if flower_mm != null:
 		flower_mm.visible = s != 3
@@ -2684,13 +2769,13 @@ func _apply_tree_season(s: int) -> void:
 	var pine_pal: Array[Color] = []
 	match s:
 		0:
-			broad_pal = [Color(0.26, 0.44, 0.16), Color(0.31, 0.50, 0.19), Color(0.23, 0.40, 0.15)]
-			birch_pal = [Color(0.34, 0.50, 0.20), Color(0.40, 0.56, 0.24)]
-			pine_pal = [Color(0.12, 0.26, 0.14), Color(0.15, 0.30, 0.16)]
+			broad_pal = [Color(0.32, 0.52, 0.18), Color(0.38, 0.56, 0.20), Color(0.28, 0.46, 0.16)]
+			birch_pal = [Color(0.40, 0.58, 0.22), Color(0.46, 0.62, 0.26)]
+			pine_pal = [Color(0.16, 0.34, 0.16), Color(0.20, 0.38, 0.18)]
 		1:
-			broad_pal = [Color(0.22, 0.40, 0.14), Color(0.27, 0.46, 0.17), Color(0.19, 0.36, 0.13)]
-			birch_pal = [Color(0.30, 0.46, 0.18), Color(0.36, 0.52, 0.21)]
-			pine_pal = [Color(0.10, 0.23, 0.12), Color(0.13, 0.27, 0.14)]
+			broad_pal = [Color(0.30, 0.50, 0.16), Color(0.36, 0.54, 0.18), Color(0.26, 0.44, 0.14)]
+			birch_pal = [Color(0.36, 0.54, 0.20), Color(0.42, 0.58, 0.22)]
+			pine_pal = [Color(0.14, 0.32, 0.14), Color(0.18, 0.36, 0.16)]
 		2:
 			broad_pal = [Color(0.62, 0.44, 0.15), Color(0.72, 0.54, 0.18), Color(0.50, 0.34, 0.12)]
 			birch_pal = [Color(0.78, 0.64, 0.24), Color(0.66, 0.50, 0.18)]
@@ -2751,7 +2836,7 @@ func save_game() -> void:
 		for w in b.builders:
 			if is_instance_valid(w):
 				builder_ids.append(GameState.citizens.find(w))
-		data["buildings"].append({
+		var entry := {
 			"id": b.def_id,
 			"cell": [b.cell.x, b.cell.y],
 			"complete": b.complete,
@@ -2763,7 +2848,13 @@ func save_game() -> void:
 			"job_priority": b.job_priority,
 			"worker_ids": worker_ids,
 			"builder_ids": builder_ids,
-		})
+		}
+		if b.is_pasture() and b.herd_ready:
+			entry["herd_count"] = b.herd_count
+			entry["herd_health"] = b.herd_health
+			entry["herd_keep"] = b.herd_keep
+			entry["herd_sick"] = b.herd_sick
+		data["buildings"].append(entry)
 	for c in GameState.citizens:
 		if not is_instance_valid(c) or c.dead:
 			continue
@@ -2844,6 +2935,7 @@ func load_game() -> void:
 		if b == null:
 			continue
 		b.produced = float(bd.get("produced", 0.0))
+		b.apply_herd_save(bd)
 		if bool(bd.get("complete", true)):
 			b.finish_now()
 		else:
@@ -3201,19 +3293,21 @@ func _set_daylight(k: float) -> void:
 	_ensure_light_refs()
 	if _sun == null:
 		return
-	_sun.rotation_degrees = Vector3(-44, -38, 0).lerp(Vector3(-15, -32, 0), k)
-	_sun.light_energy = lerpf(2.05, 1.20, k)
-	_sun.light_color = Color(1.0, 0.94, 0.82).lerp(Color(1.0, 0.58, 0.33), k)
+	_sun.rotation_degrees = Vector3(-42, -50, 0).lerp(Vector3(-16, -36, 0), k)
+	_sun.light_energy = lerpf(1.75, 1.05, k)
+	_sun.light_color = Color(1.0, 0.91, 0.74).lerp(Color(1.0, 0.62, 0.36), k)
+	if water_mat != null:
+		water_mat.set_shader_parameter("sun_dir", (-_sun.global_transform.basis.z).normalized())
 	if _env != null:
-		_env.ambient_light_color = Color(0.64, 0.65, 0.68).lerp(Color(0.34, 0.38, 0.58), k)
-		_env.ambient_light_energy = lerpf(0.60, 0.66, k)
+		_env.ambient_light_color = Color(0.70, 0.67, 0.58).lerp(Color(0.36, 0.40, 0.58), k)
+		_env.ambient_light_energy = lerpf(0.74, 0.62, k)
 		# 雪面反射强，冬季把环境光提一档并调暖，阴影里的雪不会发紫
 		if GameState.is_winter():
 			_env.ambient_light_energy *= 1.35
 			_env.ambient_light_color = _env.ambient_light_color.lerp(Color(0.68, 0.70, 0.76), 0.55)
-		_env.fog_light_color = Color(0.68, 0.68, 0.70).lerp(Color(0.30, 0.30, 0.40), k)
-		_env.tonemap_exposure = lerpf(1.15, 1.30, k)
-		_env.glow_intensity = lerpf(0.32, 0.75, k)
+		_env.fog_light_color = Color(0.84, 0.78, 0.66).lerp(Color(0.32, 0.32, 0.42), k)
+		_env.tonemap_exposure = lerpf(1.08, 1.22, k)
+		_env.glow_intensity = lerpf(0.28, 0.72, k)
 	var night_now := k > 0.55
 	if night_now != _night_flag:
 		_night_flag = night_now
@@ -3252,7 +3346,7 @@ func _cut_shadows(which: String) -> void:
 ## 演示截图：对齐概念 v3 的暖色斜照（非正午）
 func _apply_shot_golden() -> void:
 	_force_dusk = true
-	_set_daylight(0.52)
+	_set_daylight(0.30)
 
 ## 黄昏/夜晚（命令行强制，偏晚但不全红）
 func _apply_dusk() -> void:
@@ -3296,6 +3390,12 @@ func _build_demo_town() -> void:
 	]
 	for item in layout:
 		place_building(str(item[0]), item[1], true, true)
+	var school_at := find_build_cell("school", Vector2i(41, 33), 10)
+	if school_at.x >= 0:
+		place_building("school", school_at, true, true)
+	var pasture_at := find_build_cell("pasture", Vector2i(19, 32), 10)
+	if pasture_at.x >= 0:
+		place_building("pasture", pasture_at, true, true)
 	# 主干道
 	for x in range(26, 40):
 		place_building("road", Vector2i(x, 32), true, true)
@@ -3421,6 +3521,104 @@ func _selftest() -> void:
 		and is_equal_approx(float(GameState.event_weights["fire"]), 0.42) \
 		and is_equal_approx(float(GameState.event_weights["plague"]), 1.0)
 	print("  存档 v2 事件字段: ", "OK" if ev_ok else "FAIL")
+	_selftest_pasture()
+
+## 牧场羊群：屠宰、产羔、越冬饿死、疫病与旧档缺省。不改 [8] 经济基线。
+func _selftest_pasture() -> void:
+	var saved_t := GameState.t
+	var saved_food := float(GameState.stock.get("food", 0.0))
+	var saved_leather := float(GameState.stock.get("leather", 0.0))
+	var cell := find_build_cell("pasture", Vector2i(31, 31))
+	if cell.x < 0:
+		print("  牧场经营: FAIL 找不到空地")
+		return
+	var b: Building = place_building("pasture", cell, true, true)
+	if b == null or not b.is_pasture() or b.herd_count != 6 or b.herd_keep != 4:
+		print("  牧场经营: FAIL 初始羊群")
+		_selftest_pasture_cleanup(b, saved_t, saved_food, saved_leather, null)
+		return
+
+	GameState.t = 8.0 * GameState.DAY_SECONDS
+	GameState.stock["food"] = 500.0
+	GameState.stock["leather"] = 10.0
+	GameState.tick_herds()
+	var slaughter_ok := b.herd_count == 4 and float(GameState.stock["food"]) >= 532.0 \
+		and float(GameState.stock["leather"]) >= 16.0
+
+	b.herd_count = 4
+	b.herd_keep = 14
+	b.herd_health = 80.0
+	b.herd_sick = 0
+	var dummy := _selftest_pasture_staff(b)
+	GameState.t = 0.0
+	GameState.tick_herds()
+	var breed_ok := b.herd_count == 7
+	_selftest_pasture_unstaff(b, dummy)
+
+	var pop := GameState.citizens.size()
+	b.herd_count = 6
+	b.herd_health = 90.0
+	b.herd_sick = 0
+	GameState.t = 18.0 * GameState.DAY_SECONDS
+	GameState.stock["food"] = float(pop) * 4.0
+	var food_before := float(GameState.stock["food"])
+	GameState.tick_herds()
+	var starve_ok := b.herd_count == 4 and is_equal_approx(float(GameState.stock["food"]), food_before)
+
+	b.herd_count = 8
+	b.herd_health = 40.0
+	b.herd_sick = 0
+	GameState.stock["food"] = 500.0
+	GameState.tick_herds()
+	var sick_ok := b.herd_sick == 4 and b.herd_count == 8
+	GameState.tick_herds()
+	GameState.tick_herds()
+	var plague_ok := b.herd_sick == 2 and b.herd_count == 7
+
+	var keep_before := b.herd_keep
+	b.apply_herd_save({})
+	var legacy_ok := b.herd_keep == keep_before and b.herd_count == 7
+	b.apply_herd_save({"herd_count": 9, "herd_keep": 2, "herd_health": 50.0, "herd_sick": 1})
+	var save_ok := b.herd_count == 9 and b.herd_keep == 2 and b.herd_sick == 1
+	select(b)
+	var ui_ok := ui != null and ui.sel_panel.visible and ui.herd_row.visible \
+		and ui.sel_body.text.contains("羊群") and not ui.herd_restock.visible
+	b.herd_count = 0
+	if ui != null:
+		ui.show_building(b)
+	var extinct_ui := ui != null and ui.herd_restock.visible and ui.sel_body.text.contains("羊群已绝")
+
+	var ok := slaughter_ok and breed_ok and starve_ok and sick_ok and plague_ok \
+		and legacy_ok and save_ok and ui_ok and extinct_ui
+	print("  牧场经营: ", "OK" if ok else "FAIL",
+		" slaughter=%s breed=%s starve=%s sick=%s plague=%s legacy=%s save=%s ui=%s extinct=%s" % [
+			slaughter_ok, breed_ok, starve_ok, sick_ok, plague_ok, legacy_ok, save_ok, ui_ok, extinct_ui])
+	_selftest_pasture_cleanup(b, saved_t, saved_food, saved_leather, null)
+
+func _selftest_pasture_staff(b: Building) -> Citizen:
+	if GameState._herd_staffed(b):
+		return null
+	var dummy := Citizen.new()
+	b.workers.append(dummy)
+	return dummy
+
+func _selftest_pasture_unstaff(b: Building, dummy: Citizen) -> void:
+	if dummy != null and is_instance_valid(dummy):
+		b.workers.erase(dummy)
+		dummy.free()
+	for w in b.workers.duplicate():
+		b.remove_worker(w)
+
+func _selftest_pasture_cleanup(b: Building, saved_t: float, saved_food: float, saved_leather: float, dummy: Citizen) -> void:
+	if dummy != null and is_instance_valid(dummy):
+		if b != null and is_instance_valid(b):
+			b.workers.erase(dummy)
+		dummy.free()
+	GameState.t = saved_t
+	GameState.stock["food"] = saved_food
+	GameState.stock["leather"] = saved_leather
+	if b != null and is_instance_valid(b):
+		demolish(b, false)
 
 func _event_snapshot() -> String:
 	return "ev=%s fire=%.2f cold=%d" % [

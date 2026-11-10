@@ -4,12 +4,18 @@
 用法：
     blender --background --factory-startup --python tools/build_assets.py
 
+环境变量：
+    FZ_OUT           导出目录，默认 <仓库>/assets/models
+    FZ_SKIP_PREVIEW  设为 1 时跳过合影渲染与 .blend 保存
+
 产出：
     assets/models/house.glb      民居
     assets/models/storage.glb    仓库
     assets/models/woodcutter.glb 伐木场
+    assets/models/school.glb     学堂（独立造型，不再复用教堂）
+    assets/models/pasture.glb    牧场（敞棚 + 羊圈，不再复用采集小屋）
     assets/models/character.glb  居民（带骨骼与 Walk / Idle 动画）
-    tools/preview.png            四种资产的合影预览
+    tools/preview.png            资产合影预览
 
 约定：
     - 1 Blender 单位 = 1 米
@@ -22,10 +28,15 @@ import bpy
 import bmesh
 import math
 import os
+import sys
 from mathutils import Vector, Matrix
 
-OUT_DIR = r"D:\01_code\00_fzzc\assets\models"
-PREVIEW = r"D:\01_code\00_fzzc\tools\preview.png"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import special_buildings
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+OUT_DIR = os.environ.get("FZ_OUT", os.path.join(ROOT, "assets", "models"))
+PREVIEW = os.path.join(ROOT, "tools", "preview.png")
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(PREVIEW), exist_ok=True)
 
@@ -131,6 +142,44 @@ def cylinder(name, radius, depth, loc, material, axis="Z", segments=8):
                          verts=bm.verts)
     bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts)
     return _finish(name, bm, material)
+
+
+def uvsphere(name, radius, loc, material, seg=8, rings=5, scale=(1.0, 1.0, 1.0)):
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=seg, v_segments=max(rings, 3), radius=radius)
+    for v in bm.verts:
+        v.co.x *= scale[0]
+        v.co.y *= scale[1]
+        v.co.z *= scale[2]
+    bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts)
+    return _finish(name, bm, material)
+
+
+def realize(M, parts, name):
+    """把 special_buildings 的规格收成一个物体，和 export_special_glb.py 同一套数据。"""
+    objs = []
+    for i, part in enumerate(parts):
+        material = M[part["mat"]]
+        tag = "%s_%d" % (name, i)
+        op = part["op"]
+        if op == "box":
+            objs.append(box(tag, part["sx"], part["sy"], part["sz"], part["loc"], material, part.get("rot", (0.0, 0.0, 0.0))))
+        elif op == "prism":
+            ob = prism(tag, part["w"], part["d"], part["h"], part["z"], material)
+            ox, oy = part.get("loc", (0.0, 0.0))
+            for v in ob.data.vertices:
+                v.co.x += ox
+                v.co.y += oy
+            objs.append(ob)
+        elif op == "cyl":
+            objs.append(cylinder(tag, part["r"], part["h"], part["loc"], material, part.get("axis", "Z"), part.get("seg", 10)))
+        elif op == "cone":
+            objs.append(cone(tag, part["r1"], part["r2"], part["h"], part["loc"], material, "Z", part.get("seg", 10)))
+        elif op == "sphere":
+            objs.append(uvsphere(tag, part["r"], part["loc"], material, part.get("seg", 8), part.get("rings", 5), part.get("scale", (1.0, 1.0, 1.0))))
+        else:
+            raise ValueError(op)
+    return join(objs, name)
 
 
 def cone(name, r1, r2, depth, loc, material, axis="Z", segments=8):
@@ -2308,8 +2357,27 @@ def main():
         export(name, [ob])
         ob.location = (60.0, 60.0, 0)
 
-    render_preview()
-    bpy.ops.wm.save_as_mainfile(filepath=r"D:\01_code\00_fzzc_art\assets.blend")
+    school = realize(M, special_buildings.school_parts(), "school")
+    export("school", [school])
+    school.location = (76.0, 8.0, 0)
+
+    pasture = realize(M, special_buildings.pasture_parts(), "pasture")
+    export("pasture", [pasture])
+    pasture.location = (76.0, 14.0, 0)
+
+    if os.environ.get("FZ_SKIP_PREVIEW") == "1":
+        print("DONE")
+        return
+    try:
+        render_preview()
+    except Exception as exc:
+        print("SKIP preview", exc)
+    blend_path = os.environ.get("FZ_BLEND_OUT", r"D:\01_code\00_fzzc_art\assets.blend")
+    try:
+        os.makedirs(os.path.dirname(blend_path), exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+    except Exception as exc:
+        print("SKIP blend save", exc)
     print("DONE")
 
 

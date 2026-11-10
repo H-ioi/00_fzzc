@@ -1,10 +1,11 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_opaque, cull_back, diffuse_burley, specular_schlick_ggx;
 
-uniform vec4 shallow_col : source_color = vec4(0.17, 0.56, 0.60, 1.0);
-uniform vec4 deep_col : source_color = vec4(0.04, 0.24, 0.38, 1.0);
-uniform vec4 foam_col : source_color = vec4(0.92, 0.95, 0.93, 1.0);
-uniform vec4 sky_col : source_color = vec4(0.52, 0.70, 0.82, 1.0);
+uniform vec4 shallow_col : source_color = vec4(0.22, 0.50, 0.74, 1.0);
+uniform vec4 deep_col : source_color = vec4(0.05, 0.22, 0.46, 1.0);
+uniform vec4 foam_col : source_color = vec4(0.93, 0.95, 0.92, 1.0);
+uniform vec4 sky_col : source_color = vec4(0.62, 0.76, 0.88, 1.0);
+uniform vec3 sun_dir = vec3(0.42, 0.82, 0.38);
 uniform sampler2D depth_mask : filter_linear, repeat_disable;
 uniform sampler2D reflection_tex : filter_linear, repeat_disable;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
@@ -62,11 +63,19 @@ void fragment() {
 	vec3 nrm = normalize(vec3(-grad.x, 1.0, -grad.y));
 	NORMAL = nrm;
 
-	// 菲涅尔反射天空
+	// 菲涅尔：天空底色 + 镜像相机的平面反射（不是屏幕空间反射）
 	vec3 view_dir = normalize(CAMERA_POSITION_WORLD - wpos);
 	float ndv = clamp(dot(nrm, view_dir), 0.0, 1.0);
-	float fres = pow(1.0 - ndv, 2.6);
-	col = mix(col, sky_col.rgb, fres * 0.38);
+	float fres = pow(1.0 - ndv, 2.4);
+	col = mix(col, sky_col.rgb, fres * 0.28);
+	vec2 refl_uv = clamp(SCREEN_UV + vec2(nrm.x, -nrm.z) * 0.014, vec2(0.002), vec2(0.998));
+	vec3 refl = texture(reflection_tex, refl_uv).rgb;
+	float refl_l = dot(refl, vec3(0.299, 0.587, 0.114));
+	float refl_amt = fres * 0.46 * smoothstep(0.025, 0.12, refl_l) * (1.0 - edge);
+	col = mix(col, refl, refl_amt);
+	vec3 half_dir = normalize(normalize(sun_dir) + view_dir);
+	float spec = pow(clamp(dot(nrm, half_dir), 0.0, 1.0), 90.0);
+	col += vec3(1.0, 0.97, 0.88) * spec * 0.55;
 
 	// 折射：浅水处透过水面看到被波面扭曲的河床
 	vec2 duv = SCREEN_UV + vec2(nrm.x, nrm.z) * 0.035;
