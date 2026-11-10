@@ -207,7 +207,7 @@ func _build_top_bar(root: Control) -> void:
 	hb.add_child(time_label)
 
 	pop_label = Label.new()
-	pop_label.custom_minimum_size.x = 92
+	pop_label.custom_minimum_size.x = 160
 	pop_label.add_theme_color_override("font_color", Color(0.84, 0.86, 0.90))
 	hb.add_child(pop_label)
 
@@ -680,6 +680,24 @@ func _refresh_top_bar() -> void:
 	var sick := GameState.sick_count()
 	var dead := GameState.dead_count
 	var pop_parts: Array[String] = ["人口 %d" % pop]
+	var infants := 0
+	var students := 0
+	var elders := 0
+	for c in GameState.citizens:
+		if not is_instance_valid(c) or c.dead:
+			continue
+		if c.is_infant():
+			infants += 1
+		elif c.is_child():
+			students += 1
+		elif c.is_elder():
+			elders += 1
+	if infants > 0:
+		pop_parts.append("幼 %d" % infants)
+	if students > 0:
+		pop_parts.append("学 %d" % students)
+	if elders > 0:
+		pop_parts.append("老 %d" % elders)
 	if sick > 0:
 		pop_parts.append("病 %d" % sick)
 	if dead > 0:

@@ -10,6 +10,12 @@ const DAY_SECONDS := 20.0        ## 1 个游戏日 = 20 秒（1 倍速）
 const DAYS_PER_SEASON := 6
 const DAYS_PER_YEAR := DAYS_PER_SEASON * 4
 const ADULT_AGE_YEARS := 16
+const WORK_AGE_YEARS := 4
+const FERTILE_END_YEARS := 40
+const ELDER_AGE_YEARS := 60
+const ELDER_WORK_MULT := 0.75
+const OLD_AGE_YEARS := 70
+const MAX_AGE_YEARS := 84
 const CHILD_WORK_MULT := 0.55
 const SEASONS: Array[String] = ["春", "夏", "秋", "冬"]
 const BASE_CAPACITY := 800.0
@@ -448,6 +454,30 @@ func active_hospital() -> Building:
 func adult_age_days() -> int:
 	return ADULT_AGE_YEARS * DAYS_PER_YEAR
 
+func work_age_days() -> int:
+	return WORK_AGE_YEARS * DAYS_PER_YEAR
+
+func fertile_end_days() -> int:
+	return FERTILE_END_YEARS * DAYS_PER_YEAR
+
+func elder_age_days() -> int:
+	return ELDER_AGE_YEARS * DAYS_PER_YEAR
+
+func old_age_days() -> int:
+	return OLD_AGE_YEARS * DAYS_PER_YEAR
+
+func max_age_days() -> int:
+	return MAX_AGE_YEARS * DAYS_PER_YEAR
+
+func old_age_death_chance(age_days: int) -> float:
+	if age_days < old_age_days():
+		return 0.0
+	if age_days >= max_age_days():
+		return 1.0
+	var span := float(max_age_days() - old_age_days())
+	var u := float(age_days - old_age_days()) / span
+	return lerpf(0.006, 0.08, u * u)
+
 ## 建成的教堂：不占工人，缓慢提升全城健康
 func has_church() -> bool:
 	for b in buildings:
@@ -816,7 +846,13 @@ func _new_day() -> void:
 
 		for c in citizens.duplicate():
 			if is_instance_valid(c) and not c.dead:
+				var prev_age := c.age
 				c.age += 1
+				if prev_age < work_age_days() and c.age >= work_age_days():
+					log_msg("一名幼童到了上工的年纪。")
+				if prev_age < adult_age_days() and c.age >= adult_age_days():
+					log_msg("一名学童成年了。")
+				c.apply_age_visual()
 				c.daily_update(fire_ratio, is_winter())
 		var sc := sick_count()
 		if sc > 0 and total_days() % 3 == 0:

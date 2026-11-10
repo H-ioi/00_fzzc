@@ -2138,6 +2138,8 @@ func _paint_door_path(b: Building) -> void:
 func _on_building_completed(b: Building) -> void:
 	GameState.capacity += b.storage_capacity()
 	_assign_jobs()
+	if int(b.def.get("homes", 0)) > 0:
+		_form_households()
 	spawn_context_prop(b)
 	_paint_door_path(b)
 	if selected == b and ui != null:
@@ -2234,6 +2236,7 @@ func spawn_citizen(pos: Vector3, age_days: int = -1) -> Citizen:
 		c.age = age_days
 	else:
 		c.age = rng.randi_range(GameState.adult_age_days(), 45 * GameState.DAYS_PER_YEAR)
+	c.apply_age_visual()
 	c.died.connect(_on_citizen_died)
 	GameState.citizens.append(c)
 	return c
@@ -2246,7 +2249,10 @@ func _on_citizen_died(c: Citizen) -> void:
 	GameState.note_citizen_death()
 	_spawn_tombstone(c)
 	GameState.citizens.erase(c)
-	GameState.log_msg("一名居民死去了。（累计 %d）" % GameState.dead_count)
+	if str(c.death_reason) == "old":
+		GameState.log_msg("一名居民年迈去世了。（累计 %d）" % GameState.dead_count)
+	else:
+		GameState.log_msg("一名居民死去了。（累计 %d）" % GameState.dead_count)
 	c.queue_free()
 
 func _spawn_tombstone(c: Citizen) -> void:
@@ -2311,7 +2317,7 @@ func _reconcile_assignments() -> void:
 	for c in GameState.citizens:
 		if not is_instance_valid(c) or c.dead:
 			continue
-		if c.sick > 0:
+		if not c.can_work():
 			if c.workplace != null and is_instance_valid(c.workplace):
 				c.workplace.remove_worker(c)
 			elif c.workplace != null:
@@ -2344,7 +2350,7 @@ func _find_idle() -> Citizen:
 			continue
 		if c.workplace != null or c.site != null:
 			continue
-		if c.sick > 0:
+		if not c.can_work():
 			continue
 		if c.state != Citizen.St.IDLE:
 			continue
@@ -2424,23 +2430,79 @@ func _assign_jobs() -> void:
 			if is_instance_valid(w) and w.workplace != b:
 				w.workplace = b
 
+func _house_occupants(b: Building) -> Array:
+	var list: Array = []
+	for c in GameState.citizens:
+		if is_instance_valid(c) and not c.dead and c.home == b:
+			list.append(c)
+	return list
+
+func _house_free_slots(b: Building) -> int:
+	if not is_instance_valid(b) or not b.complete:
+		return 0
+	var cap := int(b.def.get("homes", 0))
+	if cap <= 0:
+		return 0
+	return maxi(0, cap - _house_occupants(b).size())
+
+func _fertile_in_house(b: Building) -> Array:
+	var list: Array = []
+	for c in _house_occupants(b):
+		if c.is_fertile():
+			list.append(c)
+	return list
+
+func _find_household_mover(dest: Building) -> Citizen:
+	var best: Citizen = null
+	var best_n := -1
+	for b in GameState.buildings:
+		if not is_instance_valid(b) or b == dest or not b.complete:
+			continue
+		var occ := _house_occupants(b)
+		var fertile := _fertile_in_house(b)
+		# 至少 3 名可生育居民，搬走一名后家里仍留一对。
+		if fertile.size() < 3:
+			continue
+		var mover: Citizen = fertile[fertile.size() - 1]
+		if occ.size() > best_n:
+			best_n = occ.size()
+			best = mover
+	return best
+
+func _form_households() -> void:
+	for b in GameState.buildings:
+		if _house_free_slots(b) <= 0:
+			continue
+		while _house_free_slots(b) > 0 and _fertile_in_house(b).size() < 2:
+			var mover := _find_household_mover(b)
+			if mover == null:
+				break
+			mover.home = b
+
+func _house_ready_for_birth() -> Building:
+	for b in GameState.buildings:
+		if _house_free_slots(b) > 0 and _fertile_in_house(b).size() >= 2:
+			return b
+	return null
+
 func _try_growth() -> void:
-	if GameState.free_homes() <= 0:
-		return
+	_form_households()
 	if GameState.happiness < 45.0:
 		return
 	var pop := GameState.citizens.size()
 	if float(GameState.stock.get("food", 0.0)) < 80.0 + pop * 2.5:
 		return
-	if rng.randf() > 0.38:
-		return
-	var house := _house_with_free_slot()
+	var house := _house_ready_for_birth()
 	if house == null:
+		return
+	if rng.randf() > 0.38:
 		return
 	var c := spawn_citizen(
 		house.global_position + Vector3(rng.randf_range(-2, 2), 0.0, rng.randf_range(-2, 2)), 0)
 	c.home = house
+	c.apply_age_visual()
 	GameState.log_msg("一名新生儿降生（幸福 %.0f，空房 %d）。" % [GameState.happiness, GameState.free_homes()])
+
 
 func _spawn_refugees() -> void:
 	var n := GameEvents.try_refugees(rng)
@@ -2952,6 +3014,7 @@ func load_game() -> void:
 		var p: Array = cd["pos"]
 		var c := spawn_citizen(Vector3(float(p[0]), 0.0, float(p[1])))
 		c.age = int(cd.get("age", GameState.adult_age_days()))
+		c.apply_age_visual()
 		c.hunger = float(cd.get("hunger", 100.0))
 		c.warmth = float(cd.get("warmth", 100.0))
 		c.health = float(cd.get("health", 100.0))
@@ -3522,6 +3585,7 @@ func _selftest() -> void:
 		and is_equal_approx(float(GameState.event_weights["plague"]), 1.0)
 	print("  存档 v2 事件字段: ", "OK" if ev_ok else "FAIL")
 	_selftest_pasture()
+	_selftest_lifecycle()
 
 ## 牧场羊群：屠宰、产羔、越冬饿死、疫病与旧档缺省。不改 [8] 经济基线。
 func _selftest_pasture() -> void:
@@ -3619,6 +3683,81 @@ func _selftest_pasture_cleanup(b: Building, saved_t: float, saved_food: float, s
 	GameState.stock["leather"] = saved_leather
 	if b != null and is_instance_valid(b):
 		demolish(b, false)
+
+
+func _selftest_remove_citizen(c: Citizen) -> void:
+	if c == null or not is_instance_valid(c):
+		return
+	for b in GameState.buildings:
+		if is_instance_valid(b):
+			b.remove_worker(c)
+			b.remove_builder(c)
+	GameState.citizens.erase(c)
+	c.queue_free()
+
+func _selftest_lifecycle() -> void:
+	var ch0 := GameState.old_age_death_chance(GameState.old_age_days() - 1)
+	var ch_max := GameState.old_age_death_chance(GameState.max_age_days())
+	var chance_ok := is_equal_approx(ch0, 0.0) and is_equal_approx(ch_max, 1.0)
+
+	var birth_ok := false
+	var cell := find_build_cell("house", Vector2i(40, 40))
+	var th: Building = null
+	if cell.x >= 0:
+		th = place_building("house", cell, true, true)
+	if th != null:
+		var a1 := spawn_citizen(th.global_position, GameState.adult_age_days() + 24)
+		var a2 := spawn_citizen(th.global_position, GameState.adult_age_days() + 48)
+		a1.home = th
+		a2.home = th
+		birth_ok = _house_ready_for_birth() == th
+		_selftest_remove_citizen(a1)
+		_selftest_remove_citizen(a2)
+		demolish(th, false)
+
+	var baby := spawn_citizen(Vector3(64.0, 0.0, 64.0), 0)
+	baby.workplace = null
+	baby.site = null
+	baby.sick = 0
+	baby._set_state(Citizen.St.IDLE)
+	var infant_ok := baby.is_infant() and (not baby.can_work()) and baby.is_child() and baby.role_text() == "幼童"
+	var idle_ok := _find_idle() != baby
+
+	baby.age = GameState.work_age_days() - 1
+	baby.apply_age_visual()
+	var pre_work := not baby.can_work()
+	baby.age = GameState.work_age_days()
+	baby.apply_age_visual()
+	var work_ok := pre_work and baby.can_work() and baby.is_child() and (not baby.is_infant())
+
+	baby.age = GameState.adult_age_days()
+	baby.apply_age_visual()
+	var adult_ok := baby.can_work() and (not baby.is_child()) and baby.is_fertile()
+	var adult_eff := baby.work_efficiency()
+
+	baby.age = GameState.elder_age_days()
+	baby.apply_age_visual()
+	var elder_eff := baby.work_efficiency()
+	var elder_ok := baby.is_elder() and (not baby.is_fertile()) and elder_eff < adult_eff - 0.01
+
+	var assign_ok := true
+	var wp: Building = null
+	for b in GameState.buildings:
+		if is_instance_valid(b) and b.complete and b.slots() > 0:
+			wp = b
+			break
+	if wp != null:
+		baby.age = GameState.adult_age_days()
+		wp.add_worker(baby)
+		baby.age = 0
+		_reconcile_assignments()
+		assign_ok = baby.workplace == null and not wp.workers.has(baby)
+
+	var ok := chance_ok and birth_ok and infant_ok and idle_ok and work_ok and adult_ok and elder_ok and assign_ok
+	print("  居民生命周期: ", "OK" if ok else "FAIL",
+		" chance=%s birth=%s infant=%s idle=%s work=%s adult=%s elder=%s assign=%s" % [
+			chance_ok, birth_ok, infant_ok, idle_ok, work_ok, adult_ok, elder_ok, assign_ok])
+	_selftest_remove_citizen(baby)
 
 func _event_snapshot() -> String:
 	return "ev=%s fire=%.2f cold=%d" % [

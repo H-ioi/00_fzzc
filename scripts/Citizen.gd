@@ -16,8 +16,10 @@ var home: Building = null
 var workplace: Building = null
 var site: Building = null
 var sick := 0
-## 存活天数（每日 +1）；未满 16 岁为儿童，生产效率折减。
+## 存活天数（每日 +1）。未满 4 岁为幼童，不能上工；未满 16 岁为学童，效率折减。
 var age := 0
+var death_reason := ""
+var _base_height := 1.0
 var hunger := 100.0
 var warmth := 100.0
 var health := 100.0
@@ -102,7 +104,11 @@ func daily_update(fire_ratio: float, winter: bool) -> void:
 	if warmth < 10.0:
 		health -= 8.0
 	if health <= 0.0:
-		_die()
+		_die("health")
+		return
+	var p := GameState.old_age_death_chance(age)
+	if p > 0.0 and randf() < p:
+		_die("old")
 
 func infect(days: int) -> void:
 	if dead:
@@ -224,7 +230,7 @@ func _tick_state(dt: float) -> void:
 		if state == St.BUILD or state == St.TO_BUILD:
 			_set_state(St.IDLE)
 
-	if sick > 0 and state in [St.TO_WORK, St.WORK, St.TO_BUILD, St.BUILD]:
+	if (sick > 0 or not can_work()) and state in [St.TO_WORK, St.WORK, St.TO_BUILD, St.BUILD]:
 		_go_home()
 		return
 
@@ -300,7 +306,7 @@ func _tick_state(dt: float) -> void:
 # ---------------------------------------------------------------- 行为
 
 func _go_work() -> void:
-	if sick > 0:
+	if sick > 0 or not can_work():
 		_go_home()
 		return
 	if workplace == null or not is_instance_valid(workplace):
@@ -311,7 +317,7 @@ func _go_work() -> void:
 	_set_state(St.TO_WORK)
 
 func _go_build() -> void:
-	if sick > 0:
+	if sick > 0 or not can_work():
 		_go_home()
 		return
 	if site == null or not is_instance_valid(site) or site.complete:
@@ -448,16 +454,51 @@ func _eat_from_stock() -> bool:
 		return true
 	return false
 
+func is_infant() -> bool:
+	return age < GameState.work_age_days()
+
 func is_child() -> bool:
 	return age < GameState.adult_age_days()
 
+func is_elder() -> bool:
+	return age >= GameState.elder_age_days()
+
+func is_fertile() -> bool:
+	return not dead and age >= GameState.adult_age_days() and age < GameState.fertile_end_days()
+
+func can_work() -> bool:
+	return not dead and sick <= 0 and not is_infant()
+
 func work_efficiency() -> float:
+	if is_infant():
+		return 0.0
 	var m := GameState.tool_factor() * GameState.mood_factor()
 	if sick > 0:
 		m *= 0.55
 	if is_child():
 		m *= GameState.child_work_mult(self)
+	elif is_elder():
+		m *= GameState.ELDER_WORK_MULT
 	return m
+
+func apply_age_visual() -> void:
+	var s := _base_height * _age_body_scale()
+	if _model != null and is_instance_valid(_model):
+		scale = Vector3.ONE
+		_model.scale = Vector3(s, s, s)
+	else:
+		scale = Vector3(s, s, s)
+
+func _age_body_scale() -> float:
+	var work := GameState.work_age_days()
+	var adult := GameState.adult_age_days()
+	if age < work:
+		return lerpf(0.52, 0.72, float(age) / float(maxi(1, work)))
+	if age < adult:
+		return lerpf(0.72, 1.0, float(age - work) / float(maxi(1, adult - work)))
+	if is_elder():
+		return 0.96
+	return 1.0
 
 func ensure_home() -> void:
 	if home != null and is_instance_valid(home):
@@ -473,7 +514,8 @@ func ensure_home() -> void:
 	home = _find_home()
 
 func _resume_after_meal() -> void:
-	if sick > 0:
+	if sick > 0 or not can_work():
+		_set_state(St.IDLE)
 		return
 	if site != null and is_instance_valid(site) and not site.complete:
 		_go_build()
@@ -510,6 +552,7 @@ func _build_mesh() -> void:
 			# 每个人衣服颜色、身高略有差异
 			var cloth := randi() % ModelPaint.TUNIC_PALETTE.size()
 			var height_scale := randf_range(0.93, 1.07)
+			_base_height = height_scale
 			_model.scale = Vector3(height_scale, height_scale, height_scale)
 			for m in _model.find_children("*", "MeshInstance3D", true, false):
 				var mi := m as MeshInstance3D
@@ -568,12 +611,19 @@ func _apply_color() -> void:
 	mat.albedo_color = c
 
 func role_text() -> String:
+	if is_infant():
+		return "幼童"
 	if workplace == null:
+		if is_child():
+			return "学童"
+		if is_elder():
+			return "老人"
 		return "闲置"
 	return str(workplace.def.get("name", "工人"))
 
-func _die() -> void:
+func _die(reason: String = "") -> void:
 	if dead:
 		return
 	dead = true
+	death_reason = reason
 	died.emit(self)
