@@ -1,13 +1,13 @@
 shader_type spatial;
 render_mode specular_disabled, diffuse_burley;
 
-uniform vec4 grass_a : source_color = vec4(0.31, 0.35, 0.21, 1.0);
-uniform vec4 grass_b : source_color = vec4(0.38, 0.41, 0.26, 1.0);
-uniform vec4 grass_c : source_color = vec4(0.25, 0.29, 0.17, 1.0);
-uniform vec4 sand_col : source_color = vec4(0.82, 0.76, 0.60, 1.0);
+uniform vec4 grass_a : source_color = vec4(0.36, 0.48, 0.22, 1.0);
+uniform vec4 grass_b : source_color = vec4(0.48, 0.58, 0.26, 1.0);
+uniform vec4 grass_c : source_color = vec4(0.28, 0.40, 0.16, 1.0);
+uniform vec4 sand_col : source_color = vec4(0.86, 0.78, 0.56, 1.0);
 uniform vec4 dirt_col : source_color = vec4(0.40, 0.31, 0.20, 1.0);
 uniform vec4 line_col : source_color = vec4(0.13, 0.18, 0.10, 1.0);
-uniform vec4 dry_col : source_color = vec4(0.44, 0.40, 0.24, 1.0);
+uniform vec4 dry_col : source_color = vec4(0.56, 0.50, 0.28, 1.0);
 uniform vec4 winter_col : source_color = vec4(0.82, 0.86, 0.92, 1.0);
 uniform float cell_size = 2.0;
 uniform float world_size = 128.0;
@@ -131,7 +131,7 @@ void fragment() {
 	// 云影：大尺度噪声缓慢掠过地面
 	vec2 cp = wpos.xz * 0.018 + vec2(cloud_time * 0.013, cloud_time * 0.008);
 	float cl = fbm(cp * 1.7);
-	float cloud_shade = mix(0.74, 1.0, smoothstep(0.42, 0.68, cl));
+	float cloud_shade = mix(0.84, 1.0, smoothstep(0.42, 0.68, cl));
 	base *= cloud_shade;
 
 	// 高山雪线：海拔越高越白
@@ -144,7 +144,7 @@ void fragment() {
 	base *= mix(0.88, 1.10, stroke);
 	float fleck = vnoise(wpos.xz * 7.0);
 	base *= mix(0.95, 1.05, fleck);
-	base = floor(base * 24.0) / 24.0;
+	base = mix(base, floor(base * 28.0) / 28.0, 0.40);
 
 	base = mix(base, winter_col.rgb, winter_mix);
 

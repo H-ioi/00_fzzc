@@ -1,7 +1,8 @@
 shader_type spatial;
 render_mode diffuse_burley, specular_disabled;
 
-// 树冠材质：吃 MultiMesh 实例色，再叠一层手绘笔触与色阶
+// 树冠材质：吃 MultiMesh 实例色，再叠一层手绘笔触。tint 给没有实例色的草和灌木用。
+uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 varying vec3 wpos;
 
 float hash2(vec2 p) {
@@ -35,15 +36,17 @@ void vertex() {
 }
 
 void fragment() {
-	vec3 c = COLOR.rgb;
-	// 叶簇笔触：沿树冠高度拉长的低频噪声
+	vec3 c = COLOR.rgb * tint.rgb;
 	float s = fbm(vec2(wpos.x * 1.4 + wpos.z * 0.6, wpos.y * 2.6 + wpos.z * 1.2) * 1.1);
-	c *= mix(0.80, 1.16, s);
-	// 少量高频斑点，像叶片的明暗碎块
+	c *= mix(0.82, 1.14, s);
 	float d = vnoise(wpos.xz * 5.0 + wpos.y * 2.0);
-	c *= mix(0.94, 1.07, d);
-	// 色阶量化
-	c = floor(c * 22.0) / 22.0;
+	c *= mix(0.94, 1.06, d);
+	vec3 world_n = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);
+	float up = clamp(world_n.y * 0.55 + 0.45, 0.0, 1.0);
+	c *= mix(0.68, 1.10, up);
+	float facing = clamp(dot(normalize(NORMAL), vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
+	c *= mix(0.94, 1.05, facing);
+	c = mix(c, floor(c * 28.0) / 28.0, 0.32);
 	ALBEDO = c;
-	ROUGHNESS = 0.96;
+	ROUGHNESS = 0.94;
 }

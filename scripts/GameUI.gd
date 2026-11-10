@@ -21,6 +21,11 @@ var sel_demolish: Button
 var sel_trade: Button
 var sel_assign: Button
 var sel_lock_workers: CheckButton
+var herd_row: HBoxContainer
+var herd_keep_down: Button
+var herd_keep_up: Button
+var herd_slaughter: Button
+var herd_restock: Button
 var log_box: VBoxContainer
 var event_debug_panel: PanelContainer
 var event_enabled_check: CheckButton
@@ -298,10 +303,10 @@ func _build_build_panel(root: Control) -> void:
 func _build_selected(root: Control) -> void:
 	sel_panel = PanelContainer.new()
 	sel_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	sel_panel.offset_left = -262
+	sel_panel.offset_left = -292
 	sel_panel.offset_right = -12
 	sel_panel.offset_top = 58
-	sel_panel.offset_bottom = 480
+	sel_panel.offset_bottom = 640
 	sel_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	sel_panel.visible = false
 	root.add_child(sel_panel)
@@ -339,6 +344,35 @@ func _build_selected(root: Control) -> void:
 	sel_lock_workers.tooltip_text = "锁定后自动排班不会调离在岗工人"
 	sel_lock_workers.toggled.connect(_on_lock_workers_toggled)
 	worker_row.add_child(sel_lock_workers)
+
+	herd_row = HBoxContainer.new()
+	herd_row.add_theme_constant_override("separation", 6)
+	herd_row.visible = false
+	vb.add_child(herd_row)
+	herd_keep_down = Button.new()
+	herd_keep_down.text = "保留−"
+	herd_keep_down.focus_mode = Control.FOCUS_NONE
+	herd_keep_down.tooltip_text = "降低保留目标。春夏秋超出的羊会被屠宰。"
+	herd_keep_down.pressed.connect(_on_herd_keep_down)
+	herd_row.add_child(herd_keep_down)
+	herd_keep_up = Button.new()
+	herd_keep_up.text = "保留+"
+	herd_keep_up.focus_mode = Control.FOCUS_NONE
+	herd_keep_up.tooltip_text = "提高保留目标，留下更多种羊过冬。"
+	herd_keep_up.pressed.connect(_on_herd_keep_up)
+	herd_row.add_child(herd_keep_up)
+	herd_slaughter = Button.new()
+	herd_slaughter.text = "屠宰一只"
+	herd_slaughter.focus_mode = Control.FOCUS_NONE
+	herd_slaughter.tooltip_text = "立刻屠宰 1 只，获得食物和皮革。冬天也能用。"
+	herd_slaughter.pressed.connect(_on_herd_slaughter)
+	herd_row.add_child(herd_slaughter)
+	herd_restock = Button.new()
+	herd_restock.text = "引进种羊"
+	herd_restock.focus_mode = Control.FOCUS_NONE
+	herd_restock.visible = false
+	herd_restock.pressed.connect(_on_herd_restock)
+	vb.add_child(herd_restock)
 
 	sel_upgrade = Button.new()
 	sel_upgrade.focus_mode = Control.FOCUS_NONE
@@ -650,6 +684,8 @@ func _refresh_top_bar() -> void:
 		pop_parts.append("病 %d" % sick)
 	if dead > 0:
 		pop_parts.append("亡 %d" % dead)
+	if GameState.pasture_count() > 0:
+		pop_parts.append("羊 %d" % GameState.herd_headcount())
 	pop_label.text = " · ".join(pop_parts)
 	if sick > 0:
 		if sick >= pop / 2 and pop > 0:
@@ -658,6 +694,8 @@ func _refresh_top_bar() -> void:
 			pop_label.add_theme_color_override("font_color", Color(0.92, 0.52, 0.48))
 	elif dead > 0:
 		pop_label.add_theme_color_override("font_color", Color(0.72, 0.74, 0.78))
+	elif GameState.herd_alert_summary() != "":
+		pop_label.add_theme_color_override("font_color", Color(0.92, 0.62, 0.38))
 	else:
 		pop_label.add_theme_color_override("font_color", Color(0.84, 0.86, 0.90))
 
@@ -694,7 +732,7 @@ func _refresh_top_bar() -> void:
 		eff_label.text = " · ".join(parts)
 		if GameState.ui_winter_crisis() or GameState.ui_no_firewood():
 			eff_label.add_theme_color_override("font_color", Color(0.95, 0.48, 0.36))
-		elif GameState.ui_low_clothes() or GameState.cold_snap_active():
+		elif GameState.ui_low_clothes() or GameState.cold_snap_active() or GameState.herd_alert_summary() != "":
 			eff_label.add_theme_color_override("font_color", Color(0.92, 0.62, 0.38))
 		else:
 			eff_label.add_theme_color_override("font_color", Color(0.78, 0.72, 0.58))
@@ -742,6 +780,7 @@ func _refresh_selected() -> void:
 		sel_trade.visible = false
 		sel_assign.visible = false
 		sel_lock_workers.visible = false
+		_show_herd_controls(null)
 		return
 
 	lines.append("工人：%d / %d" % [b.workers.size(), b.slots()])
@@ -820,6 +859,13 @@ func _refresh_selected() -> void:
 
 	if float(d.get("capacity", 0.0)) > 0.0:
 		lines.append("仓储：+%d" % int(float(d["capacity"])))
+
+	if b.is_pasture():
+		for herd_line in GameState.herd_status_lines(b):
+			lines.append(herd_line)
+		_show_herd_controls(b)
+	else:
+		_show_herd_controls(null)
 
 	if bool(d.get("trade", false)):
 		sel_trade.visible = true
@@ -987,3 +1033,38 @@ func _on_lock_workers_toggled(pressed: bool) -> void:
 	if main != null and _current != null:
 		main.set_building_lock_workers(_current, pressed)
 	_refresh_selected()
+
+func _show_herd_controls(b: Building) -> void:
+	var show := b != null and is_instance_valid(b) and b.is_pasture() and b.complete
+	if herd_row != null:
+		herd_row.visible = show
+	if not show:
+		if herd_restock != null:
+			herd_restock.visible = false
+		return
+	var spec: Dictionary = b.def.get("herd", {})
+	var cap := int(spec.get("cap", 14))
+	herd_keep_down.disabled = b.herd_keep <= 0
+	herd_keep_up.disabled = b.herd_keep >= cap
+	herd_slaughter.disabled = b.herd_count <= 0
+	herd_restock.visible = b.herd_count <= 0
+	herd_restock.disabled = float(GameState.stock.get("food", 0.0)) < float(spec.get("restock_food", 24.0))
+	herd_restock.text = "引进种羊（食 %d）" % int(spec.get("restock_food", 24.0))
+
+func _on_herd_keep_down() -> void:
+	if _current != null:
+		GameState.adjust_herd_keep(_current, -1)
+		_refresh_selected()
+
+func _on_herd_keep_up() -> void:
+	if _current != null:
+		GameState.adjust_herd_keep(_current, 1)
+		_refresh_selected()
+
+func _on_herd_slaughter() -> void:
+	if _current != null and GameState.slaughter_one_herd(_current, true):
+		_refresh_selected()
+
+func _on_herd_restock() -> void:
+	if _current != null and GameState.restock_herd(_current):
+		_refresh_selected()

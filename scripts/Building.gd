@@ -9,7 +9,7 @@ const MODELS := {
 	"storage": "res://assets/models/storage.glb",
 	"woodcutter": "res://assets/models/woodcutter.glb",
 	"gatherer": "res://assets/models/gatherer.glb",
-	"pasture": "res://assets/models/gatherer.glb",
+	"pasture": "res://assets/models/pasture.glb",
 	"hunter": "res://assets/models/hunter.glb",
 	"farm": "res://assets/models/farm.glb",
 	"firewood": "res://assets/models/firewood.glb",
@@ -23,7 +23,7 @@ const MODELS := {
 	"house_manor": "res://assets/models/house_manor.glb",
 	"windmill": "res://assets/models/windmill.glb",
 	"church": "res://assets/models/church.glb",
-	"school": "res://assets/models/church.glb",
+	"school": "res://assets/models/school.glb",
 	"dock": "res://assets/models/dock.glb",
 	"house_row": "res://assets/models/house_row.glb",
 	"carpenter": "res://assets/models/carpenter.glb",
@@ -68,6 +68,14 @@ var school_running := false
 var lock_workers := false
 ## 自动 `_assign_jobs` 时优先补满岗位。
 var job_priority := false
+
+## 牧场羊群。herd_ready 为 false 时完工会按 def.herd 引进；读档若已有 herd_count 则先置位，避免覆盖。
+var herd_count := 0
+var herd_health := 80.0
+var herd_keep := 4
+var herd_sick := 0
+var herd_ready := false
+var herd_full_warned := false
 
 var _quarry_extract := 0.0
 
@@ -115,6 +123,10 @@ func is_hospital() -> bool:
 
 func is_school() -> bool:
 	return bool(def.get("school", false))
+
+func is_pasture() -> bool:
+	var herd: Variant = def.get("herd", {})
+	return herd is Dictionary and not (herd as Dictionary).is_empty()
 
 func well_radius() -> float:
 	return float(def.get("radius", 12.0))
@@ -260,10 +272,56 @@ func _complete_now() -> void:
 			c.site = null
 	builders.clear()
 	apply_season_visual(GameState.is_winter())
+	var introduce_herd := is_pasture() and not herd_ready
+	ensure_herd()
 	GameState.log_msg("%s 建造完成" % str(def.get("name", def_id)))
+	if introduce_herd:
+		GameState.log_msg("引进羊群 %d 只，保留目标 %d。超出部分在春夏秋屠宰；冬天要留口粮喂羊。" % [herd_count, herd_keep])
+	if is_pasture():
+		refresh_herd_label()
 	if GameState.grid != null:
 		GameState.grid.sync_building_block(self)
 	completed.emit(self)
+
+## 仅在尚未读档恢复时按数据表引进初始羊群。
+func ensure_herd() -> void:
+	var herd: Dictionary = def.get("herd", {})
+	if herd.is_empty() or herd_ready:
+		return
+	herd_count = int(herd.get("start", 6))
+	herd_health = 80.0
+	herd_keep = int(herd.get("keep", 4))
+	herd_sick = 0
+	herd_ready = true
+
+## 旧档没有这些键时不改内存里的默认羊群。
+func apply_herd_save(bd: Dictionary) -> void:
+	if not is_pasture() or not bd.has("herd_count"):
+		return
+	var herd: Dictionary = def.get("herd", {})
+	var cap := int(herd.get("cap", 14))
+	herd_count = maxi(0, int(bd.get("herd_count", herd_count)))
+	herd_health = clampf(float(bd.get("herd_health", herd_health)), 0.0, 100.0)
+	herd_keep = clampi(int(bd.get("herd_keep", herd_keep)), 0, cap)
+	herd_sick = maxi(0, int(bd.get("herd_sick", herd_sick)))
+	herd_ready = true
+
+func refresh_herd_label() -> void:
+	if not is_pasture():
+		return
+	for child in get_children():
+		if not (child is Label3D):
+			continue
+		var label := child as Label3D
+		if label.text.begins_with("建造"):
+			continue
+		var mark := ""
+		if herd_count <= 0:
+			mark = " 绝"
+		elif herd_sick > 0:
+			mark = " 疫"
+		label.text = "牧场 %d%s" % [herd_count, mark]
+		return
 
 ## 原地升级：换成下一级的数据与外观，重新变回工地
 func begin_upgrade() -> void:
@@ -562,7 +620,7 @@ func _build_crops() -> void:
 	var n := 240
 	var cone := CylinderMesh.new()
 	cone.top_radius = 0.0
-	cone.bottom_radius = 0.11
+	cone.bottom_radius = 0.16
 	cone.height = 1.0
 	cone.radial_segments = 4
 	cone.rings = 1
@@ -590,11 +648,11 @@ func _update_crops() -> void:
 	if crop_mm == null:
 		return
 	var season := GameState.season()
-	var height: float = [0.72, 1.10, 1.70, 0.0][season]
+	var height: float = [0.95, 1.35, 1.85, 0.0][season]
 	var col: Color = [
-		Color(0.40, 0.56, 0.24),
-		Color(0.48, 0.62, 0.26),
-		Color(0.80, 0.67, 0.28),
+		Color(0.34, 0.58, 0.20),
+		Color(0.30, 0.55, 0.16),
+		Color(0.74, 0.62, 0.22),
 		Color(0.52, 0.50, 0.40),
 	][season]
 	if crop_mm.material_override is StandardMaterial3D:

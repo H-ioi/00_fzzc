@@ -270,6 +270,9 @@ func resource_alert_summary() -> String:
 		tags.append("粮紧")
 	if room_left() < 40.0:
 		tags.append("仓满")
+	var herd_alert := herd_alert_summary()
+	if herd_alert != "":
+		tags.append(herd_alert)
 	if tool_factor() < 0.75:
 		tags.append("缺工具")
 	var fw := float(stock.get("firewood", 0.0))
@@ -527,6 +530,241 @@ func log_msg(text: String) -> void:
 		print("[LOG] ", text)
 	log_message.emit(text)
 
+# ---------------------------------------------------------------- 牧场羊群
+
+func pasture_count() -> int:
+	var n := 0
+	for b in buildings:
+		if _is_pasture_building(b):
+			n += 1
+	return n
+
+func herd_headcount() -> int:
+	var n := 0
+	for b in buildings:
+		if _is_pasture_building(b):
+			n += b.herd_count
+	return n
+
+func herd_alert_summary() -> String:
+	var sick := false
+	var hungry := false
+	var gone := false
+	for b in buildings:
+		if not _is_pasture_building(b):
+			continue
+		if b.herd_count <= 0:
+			gone = true
+		else:
+			if b.herd_sick > 0:
+				sick = true
+			if _herd_feed_short(b):
+				hungry = true
+	var tags: Array[String] = []
+	if gone:
+		tags.append("羊绝")
+	if sick:
+		tags.append("羊疫")
+	if hungry:
+		tags.append("羊饿")
+	return " · ".join(tags)
+
+func herd_status_lines(b: Building) -> Array[String]:
+	var spec := _herd_spec(b)
+	var cap := int(spec.get("cap", 14))
+	var lines: Array[String] = []
+	lines.append("羊群：%d / %d　健康 %d" % [b.herd_count, cap, int(round(b.herd_health))])
+	lines.append("保留目标：%d（春夏秋超出则屠宰）" % b.herd_keep)
+	lines.append("牧人：%s" % ("在岗，可繁殖" if _herd_staffed(b) else "无人，不繁殖"))
+	if b.herd_sick > 0:
+		lines.append("疫病：还要挨 %d 天（病死不产肉）" % b.herd_sick)
+	elif not _herd_staffed(b) and is_winter() and b.herd_count >= 6 and b.herd_health < 70.0:
+		lines.append("越冬风险：羊群偏大且无人照管，健康再降会爆发疫病。")
+	if b.herd_count <= 0:
+		lines.append("羊群已绝。引进种羊需要食物 %d。" % int(spec.get("restock_food", 24)))
+	elif is_winter():
+		lines.append("越冬：每只每日 %.1f 食，先留人均 %d 口粮。" % [
+			float(spec.get("winter_feed", 0.5)), int(spec.get("food_reserve_per_capita", 4))])
+	else:
+		lines.append("屠宰一只约 +%d 食 +%d 皮。累计肉食 %.0f。" % [
+			int(spec.get("slaughter_food", 16)), int(spec.get("slaughter_leather", 3)), b.produced])
+	return lines
+
+func tick_herds() -> void:
+	for b in buildings:
+		if _is_live_pasture(b):
+			_tick_herd(b)
+
+func adjust_herd_keep(b: Building, delta: int) -> void:
+	if not _is_pasture_building(b):
+		return
+	var cap := int(_herd_spec(b).get("cap", 14))
+	b.herd_keep = clampi(b.herd_keep + delta, 0, cap)
+	log_msg("牧场保留目标改为 %d 只（上限 %d）。春夏秋超出部分会屠宰。" % [b.herd_keep, cap])
+
+func slaughter_one_herd(b: Building, manual := false) -> bool:
+	if not _is_pasture_building(b) or b.herd_count <= 0:
+		if manual:
+			log_msg("没有羊可以屠宰。")
+		return false
+	if room_left() < 1.0:
+		if manual or not b.herd_full_warned:
+			log_msg("仓库已满，暂停屠宰。")
+			b.herd_full_warned = true
+		return false
+	var spec := _herd_spec(b)
+	b.herd_full_warned = false
+	b.herd_count -= 1
+	var got_food := add("food", float(spec.get("slaughter_food", 16.0)))
+	var got_leather := add("leather", float(spec.get("slaughter_leather", 3.0)))
+	b.produced += got_food
+	var verb := "手动屠宰 1 只" if manual else "按保留目标屠宰 1 只"
+	log_msg("牧场：%s，+%d 食物 +%d 皮革（羊群 %d，保留 %d）。" % [
+		verb, int(got_food), int(got_leather), b.herd_count, b.herd_keep])
+	if b.herd_count <= 0:
+		log_msg("牧场的羊群绝了。可选中牧场，用食物重新引进种羊。")
+	b.refresh_herd_label()
+	return true
+
+func restock_herd(b: Building) -> bool:
+	if not _is_pasture_building(b):
+		return false
+	if b.herd_count > 0:
+		log_msg("羊群还在，不必重新引进。")
+		return false
+	var spec := _herd_spec(b)
+	var cost := float(spec.get("restock_food", 24.0))
+	var n := int(spec.get("restock_count", 2))
+	if not take("food", cost):
+		log_msg("食物不足，无法引进种羊（需要 %d）。" % int(cost))
+		return false
+	b.herd_count = n
+	b.herd_health = 70.0
+	b.herd_sick = 0
+	log_msg("用 %d 食物引进 %d 只种羊。开春有牧人才能产羔。" % [int(cost), n])
+	b.refresh_herd_label()
+	return true
+
+func _is_pasture_building(b) -> bool:
+	return is_instance_valid(b) and b.is_pasture() and b.complete and b.herd_ready
+
+func _is_live_pasture(b) -> bool:
+	return _is_pasture_building(b) and b.herd_count > 0
+
+func _herd_spec(b: Building) -> Dictionary:
+	var herd: Variant = b.def.get("herd", {})
+	return herd if herd is Dictionary else {}
+
+func _herd_staffed(b: Building) -> bool:
+	for w in b.workers:
+		if is_instance_valid(w):
+			return true
+	return false
+
+func _herd_feed_plan(b: Building) -> Dictionary:
+	var spec := _herd_spec(b)
+	var each := float(spec.get("winter_feed", 0.5))
+	var need := each * float(b.herd_count)
+	var reserve := float(citizens.size()) * float(spec.get("food_reserve_per_capita", 4.0))
+	var available := maxf(0.0, float(stock.get("food", 0.0)) - reserve)
+	var afford := b.herd_count if each <= 0.001 else int(floor(available / each + 0.001))
+	var fed := mini(b.herd_count, maxi(0, afford))
+	return {"need": need, "fed": fed, "take": each * float(fed)}
+
+func _herd_feed_short(b: Building) -> bool:
+	if not is_winter() or b.herd_count <= 0:
+		return false
+	return int(_herd_feed_plan(b).get("fed", 0)) < b.herd_count
+
+func _tick_herd(b: Building) -> void:
+	var spec := _herd_spec(b)
+	if _herd_staffed(b):
+		b.herd_health += 8.0
+	else:
+		b.herd_health -= 5.0
+	if b.herd_sick > 0:
+		_tick_herd_disease_day(b)
+	elif _herd_outbreak_due(b):
+		b.herd_sick = int(spec.get("sick_days", 4))
+		log_msg("牧场无人照管，羊群爆发疫病（还将持续 %d 天）。" % b.herd_sick)
+	if b.herd_count <= 0:
+		b.refresh_herd_label()
+		return
+	if is_winter():
+		_tick_herd_winter(b)
+	else:
+		_tick_herd_breed(b, spec)
+		_tick_herd_auto_slaughter(b, spec)
+	if b.herd_health <= 0.0 and b.herd_count > 0:
+		_lose_sheep(b, 1, "病弱而死，没有肉可收")
+		b.herd_health = 40.0
+	b.herd_health = clampf(b.herd_health, 0.0, 100.0)
+	b.refresh_herd_label()
+
+func _herd_outbreak_due(b: Building) -> bool:
+	return is_winter() and not _herd_staffed(b) and b.herd_count >= 6 and b.herd_health < 50.0
+
+func _tick_herd_disease_day(b: Building) -> void:
+	b.herd_sick -= 1
+	b.herd_health -= 15.0
+	if b.herd_count > 0 and (b.herd_sick == 2 or b.herd_sick == 0):
+		_lose_sheep(b, 1, "疫病病死，没有肉可收")
+
+func _tick_herd_winter(b: Building) -> void:
+	if b.herd_count <= 0:
+		return
+	var plan := _herd_feed_plan(b)
+	var take_n := float(plan.get("take", 0.0))
+	if take_n > 0.01:
+		take("food", take_n)
+	var short := b.herd_count - int(plan.get("fed", 0))
+	if short > 0:
+		_lose_sheep(b, mini(short, 2), "口粮优先，挨饿而死，没有肉可收")
+		b.herd_health -= 12.0
+	elif day_in_season() == 0:
+		log_msg("牧场开始越冬：羊群 %d 只，每日约需食物 %.0f（先留居民口粮）。" % [
+			b.herd_count, float(plan.get("need", 0.0))])
+		b.herd_health += 4.0
+
+func _tick_herd_breed(b: Building, spec: Dictionary) -> void:
+	if day_in_season() != 0 or b.herd_sick > 0 or not _herd_staffed(b):
+		return
+	if b.herd_health < 55.0 or b.herd_count < 2:
+		return
+	var cap := int(spec.get("cap", 14))
+	var room := cap - b.herd_count
+	if room <= 0:
+		return
+	var lambs := 0
+	if season() == 0:
+		lambs = 1 if b.herd_count < 4 else int(spec.get("spring_lambs", 3))
+	elif season() == 1 and b.herd_health >= 60.0:
+		lambs = int(spec.get("summer_lambs", 1))
+	lambs = mini(lambs, room)
+	if lambs <= 0:
+		return
+	b.herd_count += lambs
+	log_msg("牧场产羔 %d 只，羊群现有 %d/%d。" % [lambs, b.herd_count, cap])
+
+func _tick_herd_auto_slaughter(b: Building, spec: Dictionary) -> void:
+	if b.herd_sick > 0:
+		return
+	var batch := int(spec.get("slaughter_per_day", 2))
+	for _i in batch:
+		if b.herd_count <= b.herd_keep:
+			return
+		if not slaughter_one_herd(b, false):
+			return
+
+func _lose_sheep(b: Building, n: int, why: String) -> void:
+	n = mini(n, b.herd_count)
+	if n <= 0:
+		return
+	b.herd_count -= n
+	log_msg("牧场：%d 只羊%s（羊群剩 %d）。" % [n, why, b.herd_count])
+	if b.herd_count <= 0:
+		log_msg("牧场的羊群绝了。可选中牧场，用食物重新引进种羊。")
+
 # ---------------------------------------------------------------- 每日结算
 
 func _new_day() -> void:
@@ -587,6 +825,7 @@ func _new_day() -> void:
 		_tick_resource_warnings(pop)
 		_res_dirty = true
 
+	tick_herds()
 	day_passed.emit(total_days())
 
 func _tick_resource_warnings(pop: int) -> void:
