@@ -846,7 +846,7 @@ func _new_day() -> void:
 
 		for c in citizens.duplicate():
 			if is_instance_valid(c) and not c.dead:
-				var prev_age := c.age
+				var prev_age: int = int(c.age)
 				c.age += 1
 				if prev_age < work_age_days() and c.age >= work_age_days():
 					log_msg("一名幼童到了上工的年纪。")
